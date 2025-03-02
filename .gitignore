@@ -1,3 +1,7 @@
 .idea/
-
+.vscode/
 temp/
+**/__pycache__/
+**/db/task_ex.db
+db/task_ex.db
+/assets/540p/generals

@@ -93,7 +93,7 @@ def process_monster_rallies(thread,scan_direction):
             continue
 
         # Proceed to join the rally
-        join_alliance_war_btn_img = cv2.imread("assets/540p/join rally/join_alliance_war_btn.png")
+        join_alliance_war_btn_img = cv2.imread("assets/540p/join_rally/join_alliance_war_btn.png")
         join_alliance_war_btn_match = template_match_coordinates(src_img, join_alliance_war_btn_img)
         if not join_alliance_war_btn_match:
             # print("Cannot find the alliance war join button")
@@ -111,8 +111,8 @@ def process_monster_rallies(thread,scan_direction):
 
 def scan_rally_info(thread,roi_src):
     # Load template images
-    boss_monster_flag_img = cv2.imread("assets/540p/join rally/boss_monster_flag.png")
-    map_pinpoint_img = cv2.imread("assets/540p/join rally/map_pinpoint_tag.png")
+    boss_monster_flag_img = cv2.imread("assets/540p/join_rally/boss_monster_flag.png")
+    map_pinpoint_img = cv2.imread("assets/540p/join_rally/map_pinpoint_tag.png")
 
 
     # Capture the current screen
@@ -153,7 +153,7 @@ def scan_rally_info(thread,roi_src):
     return True
 
 def read_and_verify_monster_data(src_img):
-    monster_power_icon_img = cv2.imread("assets/540p/join rally/monster_power_icon.png")
+    monster_power_icon_img = cv2.imread("assets/540p/join_rally/monster_power_icon.png")
 
     boss_text_img = crop_boss_text_area(src_img)
     # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\boss_text_img_{get_current_datetime_string()}.png",boss_text_img)
@@ -184,7 +184,7 @@ def read_and_verify_monster_data(src_img):
 
 
 def get_march_join_time(src_img):
-    join_btn = cv2.imread("assets/540p/join rally/join_btn.png")
+    join_btn = cv2.imread("assets/540p/join_rally/join_btn.png")
     join_btn_match = template_match_coordinates(src_img,join_btn,return_center=False)
     if not join_btn_match:
         return False
@@ -239,9 +239,9 @@ def get_valid_rallies_area_cords(thread):
     src_img = thread.capture_and_validate_screen(ads=False)
 
     # Load template images
-    boss_monster_tag_img = cv2.imread("assets/540p/join rally/boss_monster_tag.png")
-    join_btn_img = cv2.imread("assets/540p/join rally/join_btn.png")
-    map_pinpoint_img = cv2.imread("assets/540p/join rally/map_pinpoint_tag.png")
+    boss_monster_tag_img = cv2.imread("assets/540p/join_rally/boss_monster_tag.png")
+    join_btn_img = cv2.imread("assets/540p/join_rally/join_btn.png")
+    map_pinpoint_img = cv2.imread("assets/540p/join_rally/map_pinpoint_tag.png")
 
     # Get the boss monster rallies matches
     boss_monster_tag_matches = template_match_coordinates_all(src_img, boss_monster_tag_img)
@@ -307,7 +307,7 @@ def scroll_through_rallies(thread,swipe_direction,swipe_limit=1,initial_swipe = 
     if initial_swipe and not swipe_direction:
         return True
     # Load the template image
-    background_img = cv2.imread("assets/540p/join rally/alliance_war_window_background.png")
+    background_img = cv2.imread("assets/540p/join_rally/alliance_war_window_background.png")
     for i in range(swipe_limit):
         # Check if there is any rallies to scroll through
         src_img = thread.capture_and_validate_screen(ads=False)
