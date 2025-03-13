@@ -10,7 +10,8 @@ from utils.helper_utils import parse_timer_to_timedelta, get_current_datetime_st
 from utils.image_recognition_utils import is_template_match, draw_template_match, template_match_coordinates_all, \
     template_match_coordinates
 from utils.navigate_utils import navigate_join_rally_window
-from utils.text_extraction_util import extract_time_from_image, extract_timer_white_text
+from utils.text_extraction_util import extract_remaining_rally_time_from_image, extract_join_rally_time_from_image, \
+    extract_monster_power_from_image
 
 
 def run_join_rally(thread):
@@ -146,17 +147,23 @@ def scan_rally_info(thread,roi_src):
         # TODO Store the cords img to cache to avoid opening the rally again
         return False
 
-    # Now verify the boss
-    read_and_verify_monster_data(src_img.copy())
+    # Read the boss
+    extracted_boss_data = read_monster_data(thread,src_img.copy())
+    if not extracted_boss_data:
+        return False
 
+    # Verify if the boss is in the selected join list
+    if not verify_monster_join(thread,extracted_boss_data):
+        return False
 
     return True
 
-def read_and_verify_monster_data(src_img):
-    monster_power_icon_img = cv2.imread("assets/540p/join_rally/monster_power_icon.png")
+def read_monster_data(thread,src_img):
+    # monster_power_icon_img = cv2.imread("assets/540p/join_rally/monster_power_icon.png")
 
     boss_text_img = crop_boss_text_area(src_img)
     # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\boss_text_img_{get_current_datetime_string()}.png",boss_text_img)
+# cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\src_img_{get_current_datetime_string()}.png",src_img)
 
     # Get the text from the image
     extracted_monster_name = extract_monster_name_from_image(boss_text_img)
@@ -176,9 +183,40 @@ def read_and_verify_monster_data(src_img):
         # print("Cannot find the boss in the db \ read wrong name")
         return None
 
-    for boss in bosses:
-        print(f"Matched Boss: {boss.name}, Level: {boss.level}")
+selected_boss_levels = thread.cache['join_rally_controls']['data']
+    # print(selected_boss_levels)
+    for boss,logic in bosses:
+        if boss.boss_monster_id not in selected_boss_levels:
+            print(f"? Boss {boss.boss_monster.preview_name} is not in the selected list to join.")
+            return None
+        # print(f"Matched Boss: {boss.name}, Level: {boss.level} Logic: {logic}")
 
+        # Get selected level IDs for this boss
+        selected_levels = selected_boss_levels[boss.boss_monster_id]
+        print(f"Selected  levels {(selected_levels)}")
+        # Do the logic check
+        if logic == 1 or logic == 3:
+            # Single level & Variant level Check
+            if len(bosses) == 1:
+                print(f"? Match Found: {boss.name} (Level {boss.level})")
+                print(extract_monster_power_from_image(src_img.copy()))
+                return True
+            return None
+        elif logic == 2:
+            # Multi level Check
+            # Read the monster power
+            power = extract_monster_power_from_image(src_img.copy())
+            print(power)
+            return
+
+        elif logic == 4:
+            # Custom level
+            return
+
+    return bosses
+
+def verify_monster_join(thread,extracted_boss_data):
+    pass
 
 
 
@@ -204,7 +242,7 @@ def get_march_join_time(src_img):
     # Perform cropping
     src_img = src_img[y1_new+2:y2-6, join_btn_match[0]+10:x2-10]
     # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\jb_{get_current_datetime_string()}.png",src_img)
-    return parse_timer_to_timedelta(extract_time_from_image(src_img))
+    return parse_timer_to_timedelta(extract_join_rally_time_from_image(src_img))
 
 
 def get_remaining_rally_time(src_img):
@@ -215,7 +253,7 @@ def get_remaining_rally_time(src_img):
     # Crop the image with a fixed height of 50 pixels to extract just the timer portion
     src_img = crop_image_fixed_height(src_img,50)
 
-    return  parse_timer_to_timedelta(extract_time_from_image(src_img))
+    return  parse_timer_to_timedelta(extract_remaining_rally_time_from_image(src_img))
 
 
 def check_skipped_rallies(thread,src_img):
