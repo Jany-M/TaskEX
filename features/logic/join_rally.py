@@ -183,7 +183,7 @@ def read_monster_data(thread,src_img):
         # print("Cannot find the boss in the db \ read wrong name")
         return None
 
-selected_boss_levels = thread.cache['join_rally_controls']['data']
+    selected_boss_levels = thread.cache['join_rally_controls']['data']
     # print(selected_boss_levels)
     for boss,logic in bosses:
         if boss.boss_monster_id not in selected_boss_levels:

@@ -4,4 +4,5 @@ temp/
 **/__pycache__/
 **/db/task_ex.db
 db/task_ex.db
-/assets/540p/generals
+#/assets/540p/generals
+resources/resources_rc.py
