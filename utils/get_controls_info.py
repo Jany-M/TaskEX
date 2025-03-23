@@ -60,8 +60,6 @@ def get_join_rally_controls(main_window, index):
         .where(MonsterLevel.id.in_(selected_level_ids))
     ).scalars().all()
 
-
-
     # Convert to a dictionary {boss_id: set(level_ids)}
     selected_boss_levels = {}
     for level in levels:
@@ -176,10 +174,10 @@ def get_join_rally_controls(main_window, index):
     settings['join_oldest_rallies_first'] = join_oldest_rallies_checkbox.isChecked()
     # combine the dict to return the values
     join_rally_controls = {
-        "data": levels,
+        "data": selected_boss_levels,
         "settings": settings
     }
-
+    # print(join_rally_controls)
     return join_rally_controls
 
 def get_game_settings_controls(main_window,index):

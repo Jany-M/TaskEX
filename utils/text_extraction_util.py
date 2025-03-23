@@ -68,7 +68,7 @@ def extract_monster_power_from_image(img):
 
     threshold = 0.8  # Match confidence threshold
     if max_val < threshold:
-        print("Power icon not found in the image.")
+        print("?? Power icon not found in the image.")
         return None
 
     # Crop the power text based on the icon's position
@@ -96,7 +96,7 @@ def extract_monster_power_from_image(img):
 
     refined_cropped_power_text = cropped_power_text[:, :x2]  # Crop up to the detected blue area
 
-    #cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\crop_{get_current_datetime_string()}.png", refined_cropped_power_text)
+    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\crop_{get_current_datetime_string()}.png", refined_cropped_power_text)
 
     # Extract text using OCR
     gray = cv2.cvtColor(refined_cropped_power_text, cv2.COLOR_BGR2GRAY)
