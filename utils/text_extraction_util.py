@@ -68,7 +68,7 @@ def extract_monster_power_from_image(img):
 
     threshold = 0.8  # Match confidence threshold
     if max_val < threshold:
-        print("?? Power icon not found in the image.")
+        print("Power icon not found in the image.")
         return None
 
     # Crop the power text based on the icon's position
