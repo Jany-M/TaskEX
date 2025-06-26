@@ -35,10 +35,11 @@ class MonsterProfileWidget(QWidget):
             # Use the default preview image
             monster_preview = os.path.join(str(self.preview_path), "default_preview.png")
         pixmap = QPixmap(monster_preview)
-        # half_height = int(pixmap.height() / 2)
-        # print(half_height) #92
-        pixmap = pixmap.scaledToHeight(92)
-        self.ui.monster_icon_label.setPixmap(pixmap)
+        if not pixmap.isNull():
+            pixmap = pixmap.scaledToHeight(92)
+            self.ui.monster_icon_label.setPixmap(pixmap)
+        else:
+            self.ui.monster_icon_label.setText("Invalid Image")
 
         # Setup Monster Label
         self.ui.monster_name_label.setText(self.data.preview_name)

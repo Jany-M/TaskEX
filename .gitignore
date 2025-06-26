@@ -2,11 +2,9 @@
 .vscode/
 temp/
 **/__pycache__/
-**/db/task_ex.db
-db/task_ex.db
-**/task_ex.db
-task_ex.db
 
 resources/resources_rc.py
 assets/540p/generals/
 *.db
+db/task_ex.db
+/Tesseract-OCR

@@ -8,6 +8,8 @@ from sqlalchemy import func
 
 from db.db_setup import get_session
 from db.models import MonsterLevel, BossMonster
+from features.utils.use_selected_generals_utils import open_general_selection_list, select_general_from_list
+from utils.generals_utils import extract_general_template_image
 from utils.helper_utils import get_current_datetime_string
 from utils.image_recognition_utils import template_match_coordinates, is_template_match
 
@@ -88,6 +90,9 @@ def crop_boss_text_area(src_img):
     # Crop the region of interest (ROI)
     cropped_img = src_img[top:bottom, left:right]
 
+
+    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\boss_text_img_{get_current_datetime_string()}.png",
+    #             cropped_img)
     return cropped_img
 
 
@@ -191,7 +196,7 @@ def normalize_boss_text(text):
 
 
 def click_join_alliance_war_btn(thread):
-    join_alliance_war_btn_img = cv2.imread("assets/540p/join_rally/join_alliance_war_btn.png")
+    join_alliance_war_btn_img = cv2.imread("assets/540p/join rally/join_alliance_war_btn.png")
 
     src_img = thread.capture_and_validate_screen()
     join_alliance_war_btn_match = template_match_coordinates(src_img, join_alliance_war_btn_img)
@@ -200,14 +205,77 @@ def click_join_alliance_war_btn(thread):
         return False
     thread.adb_manager.tap(*join_alliance_war_btn_match)
 
-def preset_option_use_selected_generals(thread,src_img):
-    select_general_btn_img = cv2.imread("assets/540p/join_rally/select_general_btn.png")
-    no_main_general_img = cv2.imread("assets/540p/join_rally/no_main_general.png")
-    no_assistant_general_img = cv2.imread("assets/540p/join_rally/no_assistant_general.png")
-    pass
+def preset_option_use_selected_generals(thread):
+    selected_preset = thread.cache['join_rally_controls']['settings']['selected_presets']
+    # Empty the selected main general cache
+    thread.cache['join_rally_controls']['cache']['selected_main_general_id'] = None
+    selected_main_general_id = thread.cache['join_rally_controls']['cache']['selected_main_general_id']
+
+    # Loop over main and assistant general in order
+    for general_type in [True,False]:
+        generals_list = selected_preset.get('main_generals' if general_type else 'assistant_generals', [])
+        # print(f"{'Main Gen' if general_type else 'Assistant Gen'} :: {selected_main_general_id}")
+        # Check if the list contains any main general in it
+        if not generals_list and general_type:
+            # print("At least one main general should be selected to continue using the selected general option")
+            thread.log_message(f"No main general selected. At least one must be chosen to use the selected general option.", level="info")
+            return False
+
+        # Check if the list contains any assistant general in it
+        if not generals_list and not general_type:
+            # print("No assistant generals to select, skipping.")
+            thread.log_message(f"No assistant generals selected. Proceeding without assistant generals.", level="info")
+            continue  # Skip assistant selection if no assistants and not main
+
+        # Remove selected main general from the assistant general list
+        if selected_main_general_id and not general_type:
+            generals_list[:] = [gen for gen in generals_list if gen['id'] != selected_main_general_id]
+            selected_main_general_id = None
+
+        # Load general template images
+        for general in generals_list:
+            # Details View
+            details_image_path = f"assets\\540p\\generals\\{general.get('details_image_name')}"
+            details_image = extract_general_template_image(cv2.imread(details_image_path))
+            general['details_image'] = details_image
+
+            # List View
+            list_image_path = f"assets\\540p\\generals\\{general.get('list_image_name')}"
+            list_image = extract_general_template_image(cv2.imread(list_image_path), view=False)
+            general['list_image'] = list_image
+
+        # Open general selection window
+        open_general_selection_window = open_general_selection_list(thread,general_type)
+        # When main general selection window is not opened (assistant is optional)
+        if not open_general_selection_window and general_type:
+            # print("Failed to open main general selection window")
+            thread.log_message(f"Unable to open main general selection window.", level="info")
+            return False
+        elif not open_general_selection_window and not general_type:
+            # print("Failed to open assistant general selection window(no assistant general enabled)")
+            thread.log_message(f"No assistant generals available for the selected main general. Skipping assistant selection.", level="info")
+            continue
+
+        # Select the general
+        if open_general_selection_window:
+            general_selected, selected_main_general_id = select_general_from_list(thread, generals_list, selected_preset['general_preset_config'])
+
+            # When main general is not selected, then skip the preset (assistant is not mandatory)
+            if not general_selected and general_type:
+                thread.adb_manager.press_back()
+                time.sleep(1)
+                return False
+            # Just press back for assistant general
+            if not general_selected and not general_type:
+                thread.adb_manager.press_back()
+                time.sleep(1)
+
+    return True
+
+
 
 def preset_option_skip_no_general(thread):
-    no_main_general_img = cv2.imread("assets/540p/join_rally/no_main_general.png")
+    no_main_general_img = cv2.imread("assets/540p/join rally/no_main_general.png")
     src_img = thread.capture_and_validate_screen()
     if is_template_match(src_img,no_main_general_img):
         return False
@@ -220,25 +288,27 @@ def preset_option_reset_to_one_troop(thread):
     # Check the troops count
     troops_count = check_selected_troops_count(src_img.copy())
     if troops_count == 1:
-        print("Troop count verified; only selected one troop")
+        # print("Troop count verified; only selected one troop")
+        thread.log_message(f"Troop count verified. Only one troop is selected as required.", level="info")
         return True
 
     # If count is not 1, then set the count to 1
-    print("Troop count is not 1. Attempting to select one troop...")
+    # print("Troop count is not 1. Attempting to select one troop...")
+    thread.log_message(f"Troop count is not 1. Attempting to select only one troop.", level="info")
     if select_one_troop(thread):
         # Optionally, recheck the troop count to confirm
         src_img = thread.capture_and_validate_screen(ads=False)
         troops_count = check_selected_troops_count(src_img.copy())
         if troops_count == 1:
-            print("New Troop count verified; only selected one troop")
+            # print("New Troop count verified; only selected one troop")
+            thread.log_message(f"Troop selection adjusted. Only one troop is now selected.", level="info")
             return True
 
-    print("Troops count template not found.")
     return False
 
 
 def check_selected_troops_count(src_img):
-    troops_count_img = cv2.imread("assets/540p/join_rally/troops_count.png")
+    troops_count_img = cv2.imread("assets/540p/join rally/troops_count.png")
     # Crop the img area where the troop count is present
     troops_count_img_match = template_match_coordinates(src_img, troops_count_img, return_center=False)
     if troops_count_img_match:
@@ -275,13 +345,13 @@ def select_one_troop(thread):
         bool: True if one troop was successfully selected, False otherwise.
     """
     # Template images for the three presets
-    power_first_template = cv2.imread("assets/540p/join_rally/preset_power_first_img.png")
-    one_full_tiers_template = cv2.imread("assets/540p/join_rally/preset_one_full_tiers_img.png")
-    one_soldier_template = cv2.imread("assets/540p/join_rally/preset_one_soldier_img.png")
+    power_first_template = cv2.imread("assets/540p/join rally/preset_power_first_img.png")
+    one_full_tiers_template = cv2.imread("assets/540p/join rally/preset_one_full_tiers_img.png")
+    one_soldier_template = cv2.imread("assets/540p/join rally/preset_one_soldier_img.png")
 
     # Template images for the Reset and One Troop buttons
-    reset_btn_template = cv2.imread("assets/540p/join_rally/preset_reset_btn.png")
-    one_troop_btn_template = cv2.imread("assets/540p/join_rally/preset_one_soldier_btn.png")
+    reset_btn_template = cv2.imread("assets/540p/join rally/preset_reset_btn.png")
+    one_troop_btn_template = cv2.imread("assets/540p/join rally/preset_one_soldier_btn.png")
 
     # Maximum attempts to cycle through presets
     # Since the order is 1 Full Tiers -> Power First -> One Soldier,
@@ -358,25 +428,28 @@ def select_one_troop(thread):
 
 def validate_and_apply_stamina(thread):
     src_img = thread.capture_and_validate_screen(ads=False)
-    stamina_confirm_img = cv2.imread("assets/540p/join_rally/confirm_btn.png")
+    stamina_confirm_img = cv2.imread("assets/540p/join rally/confirm_btn.png")
 
     if not is_template_match(src_img,stamina_confirm_img):
         # print("Stamina already available")
         return True
 
-    print("Insufficient stamina to join the rally.")
+    # print("Insufficient stamina to join the rally.")
+    thread.log_message(f"Insufficient stamina to join the rally.", level="info")
 
     # Get auto use stamina settings
     auto_use_stamina = thread.cache['join_rally_controls']['settings']['auto_use_stamina']
 
     # If auto_use_stamina is not enabled
     if not auto_use_stamina['enabled']:
-        print("Auto-use stamina option is not enabled, so skipping the operation")
+        # print("Auto-use stamina option is not enabled, so skipping the operation")
+        thread.log_message(f"Auto-use stamina is disabled. Skipping operation due to insufficient stamina.", level="info")
         thread.adb_manager.press_back()
         return False
 
     # If enabled, then proceed with applying the stamina
-    print("Stamina will be automatically refilled to continue joining rallies.")
+    # print("Stamina will be automatically refilled to continue joining rallies.")
+    thread.log_message(f"Auto-use stamina is enabled. Refilling stamina to continue joining rallies.", level="info")
 
     # Get the matched cords to tap the button
     stamina_confirm_match = template_match_coordinates(src_img,stamina_confirm_img)
@@ -386,7 +459,8 @@ def validate_and_apply_stamina(thread):
 
     # Refill stamina
     if not refill_stamina(thread,auto_use_stamina['option']):
-        print("No available stamina found for refill.")
+        # print("No available stamina found for refill.")
+        thread.log_message(f"No available stamina found for refill.", level="info")
         thread.adb_manager.press_back()
         thread.adb_manager.press_back()
         time.sleep(1)
@@ -394,15 +468,15 @@ def validate_and_apply_stamina(thread):
     return True
 
 def refill_stamina(thread,option):
-    stamina_packs = [{'quantity': 100, 'path': 'assets/540p/join_rally/stamina_100.png'},
-                     {'quantity': 50, 'path': 'assets/540p/join_rally/stamina_50.png'},
-                     {'quantity': 25, 'path': 'assets/540p/join_rally/stamina_25.png'},
-                     {'quantity': 10, 'path': 'assets/540p/join_rally/stamina_10.png'}]
+    stamina_packs = [{'quantity': 100, 'path': 'assets/540p/join rally/stamina_100.png'},
+                     {'quantity': 50, 'path': 'assets/540p/join rally/stamina_50.png'},
+                     {'quantity': 25, 'path': 'assets/540p/join rally/stamina_25.png'},
+                     {'quantity': 10, 'path': 'assets/540p/join rally/stamina_10.png'}]
 
-    stamina_use = cv2.imread('assets/540p/join_rally/stamina_use.png')
-    confirm_use = cv2.imread('assets/540p/join_rally/confirm_use.png')
-    max_stamina = cv2.imread('assets/540p/join_rally/max_stamina.png')
-    add_max_stamina = cv2.imread('assets/540p/join_rally/add_max_stamina.png')
+    stamina_use = cv2.imread('assets/540p/join rally/stamina_use.png')
+    confirm_use = cv2.imread('assets/540p/join rally/confirm_use.png')
+    max_stamina = cv2.imread('assets/540p/join rally/max_stamina.png')
+    add_max_stamina = cv2.imread('assets/540p/join rally/add_max_stamina.png')
 
     thread.adb_manager.swipe(250, 810, 250, 520, 1500)
     time.sleep(1)
@@ -417,7 +491,8 @@ def refill_stamina(thread,option):
         # print(stamina['quantity'])
         if not is_template_match(src_img, stamina_img):
             # print(stamina['quantity'], "Pack not found")
-            print(f"{stamina['quantity']} vit stamina pack not found")
+            # print(f"{stamina['quantity']} vit stamina pack not found")
+            thread.log_message(f"{stamina['quantity']} vit stamina pack not found.", level="info")
             continue
         result = cv2.matchTemplate(src_img, stamina_img, cv2.TM_CCOEFF_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
@@ -430,23 +505,24 @@ def refill_stamina(thread,option):
         # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\roi_{get_current_datetime_string()}.png", roi)
         apply_stamina = template_match_coordinates(roi, stamina_use)
         if not apply_stamina:
-            stamina_use = cv2.imread('assets/540p/join_rally/stamina_use_alt.png')
+            stamina_use = cv2.imread('assets/540p/join rally/stamina_use_alt.png')
             apply_stamina = template_match_coordinates(roi, stamina_use)
             if not apply_stamina:
-                print(f"{stamina['quantity']} vit stamina pack is empty")
+                # print(f"{stamina['quantity']} vit stamina pack is empty")
+                thread.log_message(f"{stamina['quantity']} vit stamina pack is empty", level="info")
                 continue
         thread.adb_manager.tap(int((roi_w / 2) + apply_stamina[0]), int(apply_stamina[1] + top_left[1]))
         time.sleep(1)
         src_img = thread.capture_and_validate_screen()
         if option == 'Min Stamina':
-            # print("Using just 1 stamina")
-            print("Utilizing 100 vit stamina for the operation.")
+            # print("Utilizing upto 100 vit stamina for the operation.")
+            thread.log_message(f"Utilizing upto 100 vit stamina for the operation.", level="info")
             max_stamina_btn = template_match_coordinates(src_img, max_stamina)
             if max_stamina_btn:
                 thread.adb_manager.tap(*max_stamina_btn)
         else:
-            # print("Using max stamina")
-            print("Utilizing maximum stamina for the operation.")
+            # print("Utilizing maximum stamina for the operation.")
+            thread.log_message(f"Utilizing maximum stamina for the operation.", level="info")
             max_stamina_btn = template_match_coordinates(src_img, add_max_stamina)
             if max_stamina_btn:
                 thread.adb_manager.tap(*max_stamina_btn)
@@ -458,7 +534,7 @@ def refill_stamina(thread,option):
             thread.adb_manager.press_back()
             time.sleep(1)
             src_img = thread.capture_and_validate_screen(ads=False)
-            march_btn = cv2.imread("assets/540p/join_rally/march_btn.png")
+            march_btn = cv2.imread("assets/540p/join rally/march_btn.png")
             march_btn_match = template_match_coordinates(src_img, march_btn, convert_gray=False)
             if not march_btn_match:
                 return False
@@ -466,11 +542,74 @@ def refill_stamina(thread,option):
             time.sleep(2)
             return True
     # If execution reaches this line, it means no stamina found/used
-    print("No Stamina Found")
+    # print("No Stamina Found")
     return False
 
 
+def extract_monster_power_from_image(img):
+    monster_power_icon_img = cv2.imread("assets/540p/join rally/monster_power_icon.png")
 
+    # Get image dimensions
+    height, width = img.shape[:2]
+
+    # Crop the top-right quadrant
+    x_start = width // 2  # Start from the middle horizontally
+    y_start = 0  # Start from the top
+    x_end = width  # End at full width
+    y_end = height // 2  # End at the middle vertically
+    top_right_img = img[y_start:y_end, x_start:x_end]  # Crop top-right quadrant
+
+    # Convert top-right image to grayscale for template matching
+    src_gray = cv2.cvtColor(top_right_img, cv2.COLOR_BGR2GRAY)
+    icon_gray = cv2.cvtColor(monster_power_icon_img, cv2.COLOR_BGR2GRAY)
+
+    # Perform template matching to find the power icon
+    result = cv2.matchTemplate(src_gray, icon_gray, cv2.TM_CCOEFF_NORMED)
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+    threshold = 0.8  # Match confidence threshold
+    if max_val < threshold:
+        print("⚠️ Power icon not found in the image.")
+        return None
+
+    # Crop the power text based on the icon's position
+    match_x, match_y = max_loc  # Top-left coordinates of the match
+    icon_h, icon_w = icon_gray.shape[:2]
+
+    x1 = match_x + icon_w  # Start just after the icon
+    y1 = match_y  # Align with the icon
+    x2 = x1 + 150  # Approximate width for power text
+    y2 = y1 + icon_h  # Keep same height as icon
+
+    cropped_power_text = top_right_img[y1:y2, x1:x2]  # Crop the power text area
+
+    # Refine the cropped image (trim extra right-side parts)
+    hsv = cv2.cvtColor(cropped_power_text, cv2.COLOR_BGR2HSV)
+    # lower_blue = np.array([90, 50, 50])
+    # upper_blue = np.array([130, 255, 255])
+    # mask = cv2.inRange(hsv, lower_blue, upper_blue)
+    # Define HSV range for white
+    lower_white = np.array([0, 0, 200])  # Low hue, low saturation, high value (brightness)
+    upper_white = np.array([180, 50, 255])  # Full hue range, low saturation, max brightness
+    mask = cv2.inRange(hsv, lower_white, upper_white)
+
+    cols = np.any(mask, axis=0)  # Find white background columns
+    if np.any(cols):
+        x2 = np.max(np.where(cols)) + 3  # Get rightmost white pixel
+    else:
+        x2 = cropped_power_text.shape[1]  # Default to full width if no white detected
+
+    refined_cropped_power_text = cropped_power_text[:, :x2]  # Crop up to the detected white area
+
+    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\crop_{get_current_datetime_string()}.png", refined_cropped_power_text)
+
+    # Extract text using OCR
+    gray = cv2.cvtColor(refined_cropped_power_text, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    extracted_text = pytesseract.image_to_string(binary, config="--psm 7").strip()
+
+    return extracted_text
 
 
 

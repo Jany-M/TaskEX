@@ -7,7 +7,6 @@ import ntplib
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
-from config.settings import get_expire
 from core.services.bm_monsters_service import start_simulate_monster_click, \
     generate_template_image, capture_template_ss
 from core.services.bm_scan_generals_service import start_scan_generals
@@ -60,21 +59,43 @@ class EmulatorThread(QThread):
                 with open(log_file_path, "w") as f:
                     pass  # Create an empty log file
             file_handler = logging.FileHandler(log_file_path, mode="a")
-            file_formatter = logging.Formatter('[%(name)s] [%(asctime)s] [%(levelname)s]: %(message)s')
+            if self.operation_type == "emu":
+                file_formatter = logging.Formatter('[%(name)s] [%(asctime)s] [%(levelname)s]: %(message)s')
+            elif self.operation_type == "scan_general":
+                file_formatter = logging.Formatter('%(message)s')
+
             file_handler.setFormatter(file_formatter)
             logger.addHandler(file_handler)
 
-            # QTextEdit handler setup
-            console_widget = getattr(self.main_window.widgets, f"console_{self.index}", None)
-            if console_widget:
-                class QTextEditHandler(logging.Handler):
-                    def emit(self, record):
-                        msg = self.format(record)
-                        console_widget.append(msg)
+            # Emulator console handler setup (for operation_type == "emu" with QTextEdit)
+            if self.operation_type == "emu":
+                console_widget = getattr(self.main_window.widgets, f"console_{self.index}", None)
+                if console_widget:
+                    class QTextEditHandler(logging.Handler):
+                        def emit(self, record):
+                            msg = self.format(record)
+                            console_widget.append(msg)
 
-                self.console_handler = QTextEditHandler()
-                self.console_handler.setFormatter(file_formatter)
-                logger.addHandler(self.console_handler)
+                    self.console_handler = QTextEditHandler()
+                    self.console_handler.setFormatter(file_formatter)
+                    logger.addHandler(self.console_handler)
+
+            # General scan console handler setup (for operation_type == "scan_general" with QPlainTextEdit)
+            if self.operation_type == "scan_general":
+                console_widget = getattr(self.main_window.widgets, "scan_general_console", None)
+                if console_widget:
+                    class GeneralScanHandler(logging.Handler):
+                        def __init__(self, thread):
+                            super().__init__()
+                            self.thread = thread
+
+                        def emit(self, record):
+                            msg = self.format(record)
+                            console_widget.appendPlainText(msg)
+
+                    self.console_handler = GeneralScanHandler(self)
+                    self.console_handler.setFormatter(file_formatter)
+                    logger.addHandler(self.console_handler)
 
         return logger
 
@@ -102,12 +123,8 @@ class EmulatorThread(QThread):
     def validate_run(self):
         """
         Validates the emulator environment before running operations.
-        Checks expiry, device connection and screen resolution.
+        Checks device connection and screen resolution.
         """
-        # Check expiry date
-        if not self.validate_expiry():
-            return False
-
         # Check if the device is connected
         if not self.adb_manager.device:
             error_message = f"No device found on port {self.port}"
@@ -133,27 +150,6 @@ class EmulatorThread(QThread):
         self.logger.info("Validation passed. Device is now connected.")
         return True
 
-    def validate_expiry(self):
-        """
-        Validates the bot's expiry date using an NTP server.
-        Returns True if valid, False if expired or unable to verify.
-        """
-        try:
-            # Query current time from NTP server
-            ntp_client = ntplib.NTPClient()
-            response = ntp_client.request('pool.ntp.org', version=3)
-            current_utc = datetime.utcfromtimestamp(response.tx_time)
-        except Exception as e:
-            self.logger.error(f"Error fetching time from NTP server: {e}")
-            return False  # Validation fails if unable to fetch time
-
-        # Compare current date with expiry date
-        expiry_date = datetime.strptime(get_expire(), "%Y-%m-%d")
-        if current_utc.date() > expiry_date.date():
-            self.logger.error(f"Bot expired on {expiry_date.date()}")
-            return False
-        # self.logger.info(f"Expiry check passed. Current date: {current_utc.date()}, Expiry date: {expiry_date.date()}.")
-        return True
 
     def run(self):
         """
