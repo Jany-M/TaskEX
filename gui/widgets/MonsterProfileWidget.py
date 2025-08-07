@@ -34,6 +34,7 @@ class MonsterProfileWidget(QWidget):
         elif not os.path.isfile(monster_preview):
             # Use the default preview image
             monster_preview = os.path.join(str(self.preview_path), "default_preview.png")
+
         pixmap = QPixmap(monster_preview)
         if not pixmap.isNull():
             pixmap = pixmap.scaledToHeight(92)

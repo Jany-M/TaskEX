@@ -39,13 +39,28 @@ def init_bm_monster_ui(main_window):
     # Set the flow layout to the container frame (monsters_list_frame)
     monsters_list_frame.setLayout(flow_layout)
 
+    # # Get all the bosses
+    # boss_monsters = get_all_boss_monster_data_for_bm()
+    #
+    # # Pass the data to add the widgets
+    # for boss in boss_monsters:
+    #     # print(boss.monster_logic_id)
+    #     add_monster_to_frame(main_window,boss)
+
+
+def populate_monsters_tab(main_window):
+    flow_layout = main_window.widgets.monsters_list_flow_layout
+
+    # Check if the layout is already populated to avoid reloading
+    if flow_layout.count() > 0:
+        return
+
     # Get all the bosses
     boss_monsters = get_all_boss_monster_data_for_bm()
 
     # Pass the data to add the widgets
     for boss in boss_monsters:
-        # print(boss.monster_logic_id)
-        add_monster_to_frame(main_window,boss)
+        add_monster_to_frame(main_window, boss)
 
 
 def add_monster_to_frame(main_window,boss):

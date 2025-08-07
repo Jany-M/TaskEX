@@ -10,7 +10,7 @@ from core.ui_functions import UIFunctions
 from db.db_setup import init_db, get_session
 from db.models import Instance
 from gui.controllers.bm_blackmarket_controller import init_bm_blackmarket_ui
-from gui.controllers.bm_monsters_controller import init_bm_monster_ui
+from gui.controllers.bm_monsters_controller import init_bm_monster_ui, populate_monsters_tab
 from gui.controllers.bm_scan_generals_controller import init_scan_general_ui, update_scan_console
 from gui.generated.ui_main import Ui_MainWindow
 from utils.adb_manager import ADBManager
@@ -107,9 +107,12 @@ class MainWindow(QMainWindow):
         # ///////////////////////////////////////////////////////////////
         self.widgets.toggleButton.clicked.connect(lambda: UIFunctions.toggleMenu(self, True))
 
+        # Connect bot manager tab to load monsters
+        self.widgets.tabWidget.currentChanged.connect(self.on_bot_manager_tab_changed)
+
         # SET UI DEFINITIONS
         # ///////////////////////////////////////////////////////////////
-        UIFunctions.uiDefinitions(self)
+        # UIFunctions.uiDefinitions(self)
 
         # Setup the Screen DPI
         UIFunctions.setup_screen_dpi_ui(self)
@@ -145,6 +148,9 @@ class MainWindow(QMainWindow):
         self.widgets.scan_generals_btn.clicked.connect(lambda : handle_scan_general_button(self))
         self.scan_general_console.connect(lambda message: update_scan_console(self,message))
 
+    def on_bot_manager_tab_changed(self, index):
+        if self.widgets.tabWidget.tabText(index) == "Monsters":
+            populate_monsters_tab(self)
 
     def init_adb(self):
 
@@ -170,6 +176,10 @@ class MainWindow(QMainWindow):
 
 
     def finalize_setup(self):
+        # SET UI DEFINITIONS
+        # ///////////////////////////////////////////////////////////////
+        UIFunctions.uiDefinitions(self)
+
         # SET HOME PAGE AND SELECT MENU
         # ///////////////////////////////////////////////////////////////
         self.widgets.stackedWidget.setCurrentWidget(self.widgets.home)
