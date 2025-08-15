@@ -22,18 +22,16 @@ def load_join_rally_ui(instance_ui,main_window,index):
     flow_layout_2 =  FlowLayout()
     jr_monster_list2_frame.setLayout(flow_layout_2)
 
-    session = get_session()
-
     # Fetch Logic 1, Category 1 (no sorting by preview_name, keep the order by ID)
-    boss_monsters = fetch_boss_monster_data(session, 1, 1, None)
+    boss_monsters = fetch_boss_monster_data(1, 1, None)
     # Fetch Logic 1, Other Categories (sorted by preview_name)
-    boss_monsters += fetch_boss_monster_data(session, 1, None, BossMonster.preview_name)
+    boss_monsters += fetch_boss_monster_data(1, None, BossMonster.preview_name)
     for boss in boss_monsters:
         if boss.monster_logic.id == 1:
             setup_logic_1(boss,instance_ui,main_window,flow_layout_1)
 
     # Fetch Logics 2, 3, and 4 (sorted by preview_name)
-    boss_monsters = fetch_boss_monster_data(session, [2, 3, 4], None, BossMonster.preview_name)
+    boss_monsters = fetch_boss_monster_data([2, 3, 4], None, BossMonster.preview_name)
     for boss in boss_monsters:
         # print(f"Name : {boss.preview_name} :: Logic : {boss.monster_logic.id}")
         if boss.monster_logic.id == 2:
@@ -290,8 +288,7 @@ def get_boss_levels(boss_id):
     :param boss_id: ID of the boss to fetch levels for.
     :return: List of MonsterLevel objects.
     """
-    session = get_session()
-    try:
+    with get_session() as session:
         # Query and return MonsterLevel instances
         levels = (
             session.query(MonsterLevel)
@@ -300,8 +297,6 @@ def get_boss_levels(boss_id):
             .all()
         )
         return levels
-    finally:
-        session.close()
 
 def get_boss_preview_name(boss_id):
     """
@@ -310,8 +305,7 @@ def get_boss_preview_name(boss_id):
     :param boss_id: ID of the boss.
     :return: Preview name of the boss or None if not found.
     """
-    session = get_session()
-    try:
+    with get_session() as session:
         # Query the preview_name from the BossMonster table
         preview_name = (
             session.query(BossMonster.preview_name)
@@ -319,5 +313,3 @@ def get_boss_preview_name(boss_id):
             .scalar()
         )
         return preview_name
-    finally:
-        session.close()

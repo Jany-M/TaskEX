@@ -35,11 +35,10 @@ class MonsterProfileWidget(QWidget):
             # Use the default preview image
             monster_preview = os.path.join(str(self.preview_path), "default_preview.png")
         pixmap = QPixmap(monster_preview)
-        if not pixmap.isNull():
-            pixmap = pixmap.scaledToHeight(92)
-            self.ui.monster_icon_label.setPixmap(pixmap)
-        else:
-            self.ui.monster_icon_label.setText("Invalid Image")
+        # half_height = int(pixmap.height() / 2)
+        # print(half_height) #92
+        pixmap = pixmap.scaledToHeight(92)
+        self.ui.monster_icon_label.setPixmap(pixmap)
 
         # Setup Monster Label
         self.ui.monster_name_label.setText(self.data.preview_name)
@@ -70,35 +69,37 @@ class MonsterProfileWidget(QWidget):
         """
         Remove the current monster profile widget from the layout and the UI.
         """
-        if show_confirmation_dialog(self, "confirm", f"Are you sure you want to remove {self.ui.monster_name_label.text()}?"):
-            session = get_session()
-            # If it's present in the db
-            if self.data.id:
-                try:
-                    # Remove the monster and its related data from the DB
-                    monster_to_delete = session.query(BossMonster).filter(BossMonster.id == self.data.id).one_or_none()
-                    if monster_to_delete:
-                        # Delete the related levels
-                        session.query(MonsterLevel).filter(MonsterLevel.boss_monster_id == monster_to_delete.id).delete()
+        if show_confirmation_dialog(self, "confirm",
+                                    f"Are you sure you want to remove {self.ui.monster_name_label.text()}?"):
+            with get_session() as session:
+                # If it's present in the db
+                if self.data.id:
+                    try:
+                        # Remove the monster and its related data from the DB
+                        monster_to_delete = session.query(BossMonster).filter(
+                            BossMonster.id == self.data.id).one_or_none()
+                        if monster_to_delete:
+                            # Delete the related levels
+                            session.query(MonsterLevel).filter(
+                                MonsterLevel.boss_monster_id == monster_to_delete.id).delete()
 
-                        # Delete the related images
-                        session.query(MonsterImage).filter(MonsterImage.id == monster_to_delete.monster_image_id).delete()
+                            # Delete the related images
+                            session.query(MonsterImage).filter(
+                                MonsterImage.id == monster_to_delete.monster_image_id).delete()
 
-                        # Finally, delete the boss monster itself
-                        session.delete(monster_to_delete)
+                            # Finally, delete the boss monster itself
+                            session.delete(monster_to_delete)
 
-                        # Commit the transaction to remove the monster from the database
-                        session.commit()
-                except Exception as e:
-                    session.rollback()
-                    print(e)
-                finally:
-                    session.close()
+                            # Commit the transaction to remove the monster from the database
+                            session.commit()
+                    except Exception as e:
+                        session.rollback()
+                        print(e)
 
-            # Remove it from the UI
-            if self.flow_layout:
-                self.flow_layout.removeWidget(self)
-                self.deleteLater()
+                # Remove it from the UI
+                if self.flow_layout:
+                    self.flow_layout.removeWidget(self)
+                    self.deleteLater()
 
-            # Emit the signal, passing the monster object (self.data) if the id is None
-            self.monster_deleted.emit(self.data)
+                # Emit the signal, passing the monster object (self.data) if the id is None
+                self.monster_deleted.emit(self.data)

@@ -4,14 +4,15 @@ import time
 import cv2
 import numpy as np
 from pytesseract import pytesseract
-from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 
 from db.db_setup import get_session
 from db.models import MonsterLevel, BossMonster
 from features.utils.use_selected_generals_utils import open_general_selection_list, select_general_from_list
 from utils.generals_utils import extract_general_template_image
 from utils.helper_utils import get_current_datetime_string
-from utils.image_recognition_utils import template_match_coordinates, is_template_match
+from utils.image_recognition_utils import template_match_coordinates, is_template_match, template_match_coordinates_all, \
+    template_match_multiple_sizes
 
 
 def crop_middle_portion(image, mode):
@@ -90,9 +91,7 @@ def crop_boss_text_area(src_img):
     # Crop the region of interest (ROI)
     cropped_img = src_img[top:bottom, left:right]
 
-
-    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\boss_text_img_{get_current_datetime_string()}.png",
-    #             cropped_img)
+    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\boss_text_img_{get_current_datetime_string()}.png", cropped_img)
     return cropped_img
 
 
@@ -161,32 +160,34 @@ def lookup_boss_by_name(extracted_monster_name):
     Finds all MonsterLevel objects where the name column matches the extracted monster name.
     The extracted name is already normalized (lowercase, alphanumeric + periods).
     """
-    session = get_session()
-    # Fetch all boss IDs and names
-    monster_levels = session.query(MonsterLevel.id, MonsterLevel.name, MonsterLevel.boss_monster_id).all()
+    # Use a context manager to handle session lifecycle
+    with get_session() as session:
+        # Fetch all boss IDs and names
+        monster_levels = session.query(MonsterLevel.id, MonsterLevel.name, MonsterLevel.boss_monster_id).all()
 
-    # Normalize database names and find matches locally
-    matching_ids = [
-        monster.id for monster in monster_levels
-        if normalize_boss_text(monster.name) == extracted_monster_name
-    ]
+        # Normalize database names and find matches locally
+        matching_ids = [
+            monster.id for monster in monster_levels
+            if normalize_boss_text(monster.name) == extracted_monster_name
+        ]
 
-    # Fetch MonsterLevel with `monster_logic_id` attached directly in the query
-    if matching_ids:
-        bosses = (
-            session.query(
-                MonsterLevel,  # Retrieve the full MonsterLevel object
-                BossMonster.monster_logic_id.label("logic_id")  # Attach logic_id dynamically
+        # Fetch MonsterLevel with `monster_logic_id` attached directly in the query
+        if matching_ids:
+            bosses = (
+                session.query(
+                    MonsterLevel,  # Retrieve the full MonsterLevel object
+                    BossMonster.monster_logic_id.label("logic_id")  # Attach logic_id dynamically
+                )
+                .join(BossMonster, BossMonster.id == MonsterLevel.boss_monster_id)
+                .filter(MonsterLevel.id.in_(matching_ids))
+                .options(joinedload(MonsterLevel.boss_monster))
+                .all()
             )
-            .join(BossMonster, BossMonster.id == MonsterLevel.boss_monster_id)
-            .filter(MonsterLevel.id.in_(matching_ids))
-            .all()
-        )
-        # The list contains tuples: (MonsterLevel object, logic_id)
-        return bosses
+            # The list contains tuples: (MonsterLevel object, logic_id)
+            return bosses
 
-    # Return empty list if no matches found
-    return None
+        # Return None if no matches found
+        return None
 
 def normalize_boss_text(text):
     """
@@ -369,11 +370,11 @@ def select_one_troop(thread):
         # Check if the One Soldier preset is already selected
         one_soldier_match = template_match_coordinates(src_img, one_soldier_template, threshold=0.9)
         if one_soldier_match:
-            print("One Soldier preset is already selected.")
+            # print("One Soldier preset is already selected.")
             # Check for the Reset button
             reset_btn_match = template_match_coordinates(src_img, reset_btn_template, threshold=0.9)
             if reset_btn_match:
-                print("Reset button found. Clicking to clear troop selection...")
+                # print("Reset button found. Clicking to clear troop selection...")
                 thread.adb_manager.tap(*reset_btn_match)
                 time.sleep(1)
 
@@ -381,30 +382,30 @@ def select_one_troop(thread):
                 src_img = thread.capture_and_validate_screen(ads=False)
                 one_troop_btn_match = template_match_coordinates(src_img, one_troop_btn_template, threshold=0.9)
                 if one_troop_btn_match:
-                    print("One Troop button found. Clicking to select one troop...")
+                    # print("One Troop button found. Clicking to select one troop...")
                     thread.adb_manager.tap(*one_troop_btn_match)
                     time.sleep(1)
                     return True
                 else:
-                    print("One Troop button not found after resetting.")
+                    # print("One Troop button not found after resetting.")
                     return False
             else:
                 # If no Reset button, check for the One Troop button directly
                 one_troop_btn_match = template_match_coordinates(src_img, one_troop_btn_template, threshold=0.9)
                 if one_troop_btn_match:
-                    print("One Troop button found. Clicking to select one troop...")
+                    # print("One Troop button found. Clicking to select one troop...")
                     thread.adb_manager.tap(*one_troop_btn_match)
                     time.sleep(1)
                     return True
                 else:
-                    print("Neither Reset nor One Troop button found.")
+                    # print("Neither Reset nor One Troop button found.")
                     return False
 
         # If One Soldier preset is not selected, check for the other presets
         # Check 1 Full Tiers first (since it requires 2 clicks to reach One Soldier)
         one_full_tiers_match = template_match_coordinates(src_img, one_full_tiers_template, threshold=0.9)
         if one_full_tiers_match:
-            print("1 Full Tiers preset is selected. Clicking to cycle to Power First...")
+            # print("1 Full Tiers preset is selected. Clicking to cycle to Power First...")
             thread.adb_manager.tap(*one_full_tiers_match)
             time.sleep(1)
             attempts += 1
@@ -413,17 +414,17 @@ def select_one_troop(thread):
         # Check Power First (requires 1 click to reach One Soldier)
         power_first_match = template_match_coordinates(src_img, power_first_template, threshold=0.9)
         if power_first_match:
-            print("Power First preset is selected. Clicking to cycle to One Soldier...")
+            # print("Power First preset is selected. Clicking to cycle to One Soldier...")
             thread.adb_manager.tap(*power_first_match)
             time.sleep(1)
             attempts += 1
             continue
 
         # If none of the presets are found, something is wrong
-        print("No preset template matched. Unable to cycle presets.")
+        # print("No preset template matched. Unable to cycle presets.")
         return False
 
-    print("Max attempts reached while trying to cycle to One Soldier preset.")
+    # print("Max attempts reached while trying to cycle to One Soldier preset.")
     return False
 
 def validate_and_apply_stamina(thread):
@@ -613,4 +614,107 @@ def extract_monster_power_from_image(img):
 
 
 
+def get_valid_rallies_area_cords(thread):
+    """
+    Return the cords of the image area which contains the monster tag, cords(map icon) and join button with time
+    """
+    # Capture the current screen
+    src_img = thread.capture_and_validate_screen(ads=False)
 
+    # Load template images
+    boss_monster_tag_img = cv2.imread("assets/540p/join rally/boss_monster_tag.png")
+    join_btn_img = cv2.imread("assets/540p/join rally/join_btn.png")
+    map_pinpoint_img = cv2.imread("assets/540p/join rally/map_pinpoint_tag.png")
+
+    # Get the boss monster rallies matches
+    boss_monster_tag_matches = template_match_coordinates_all(src_img, boss_monster_tag_img)
+    valid_cords = []
+    # Loop through each boss monster tag match
+    for (x1, y1) in boss_monster_tag_matches:
+        # Define a limited ROI: From (x1, y1) to (end of width, y1 + 200)
+        roi_y_end = min(y1 + 200, src_img.shape[0])  # Ensure it wont exceed the image height to avoid wrong set matching
+        roi = src_img[y1:roi_y_end, x1:]
+
+        # Check for join button within the ROI
+        join_btn_matches = template_match_coordinates(roi, join_btn_img, False)
+
+        if not join_btn_matches:
+            continue
+
+        # Get the first match coordinates for join_btn inside the ROI
+        match_x1, match_y1 = join_btn_matches
+
+        # Define the region for the cords icon(map pinpoint icon) template match
+        combined_roi_x1 = x1
+        combined_roi_y1 = y1
+        combined_roi_x2 = x1 + match_x1 + join_btn_img.shape[1]  # add join_btn_img width
+        combined_roi_y2 = y1 + match_y1 + join_btn_img.shape[0] * 2  # add join_btn_img height twice
+
+        # Create an image area to scan for the map pinpoint icon (to get the cords of the monsters)
+        combined_roi = src_img[combined_roi_y1:combined_roi_y2, combined_roi_x1:combined_roi_x2]
+
+        # Search for the map pinpoint icon inside the combined ROI
+        map_pinpoint_match = template_match_coordinates(combined_roi, map_pinpoint_img, False)
+
+        if not map_pinpoint_match:
+            continue
+
+        # Get the map pinpoint coordinates relative to the combined ROI
+        map_pinpoint_x1, map_pinpoint_y1 = map_pinpoint_match
+
+        # Adjust combined ROI to start from the map pinpoint match coordinates
+        adjusted_x1 = combined_roi_x1 + map_pinpoint_x1
+        adjusted_y1 = combined_roi_y1 + map_pinpoint_y1
+        adjusted_x2 = combined_roi_x2  # Keep the previous x2 boundary
+        adjusted_y2 = combined_roi_y2  # Keep the previous y2 boundary
+
+        # Create the adjusted combined ROI
+        # adjusted_combined_roi = src_img[adjusted_y1:adjusted_y2, adjusted_x1:adjusted_x2]
+        # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\{x1},{y1}.png",adjusted_combined_roi)
+
+        valid_cords.append((adjusted_x1, adjusted_y1, adjusted_x2, adjusted_y2))
+
+    return valid_cords
+
+def check_skipped_rallies(thread,src_img):
+    """
+    Validate before proceeding to join
+    """
+    scales = np.arange(0.3, 1, 0.01)
+
+    # Check skipped list
+    for i, cords_img in enumerate(thread.cache['join_rally_controls']['cache']['skipped_monster_cords_img']):
+        # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\src_img_{get_current_datetime_string()}.png", src_img)
+
+        match_result, _ = template_match_multiple_sizes(src_img, cords_img, scales, return_center=False, convert_gray=False)
+
+        if match_result:
+            # print("Already skipped one")
+            return False
+
+    return True
+
+def add_rally_cord_to_skip_list(thread, boss_text_img):
+    map_pinpoint_tag_img = cv2.imread("assets/540p/join rally/map_pinpoint_tag.png")
+
+    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\skip_rally_{get_current_datetime_string()}.png", boss_text_img)
+
+    # Find the top-left corner of the match
+    map_pinpoint_match = template_match_coordinates(boss_text_img, map_pinpoint_tag_img, return_center=False)
+    if map_pinpoint_match is None:
+        # print("No match found.")
+        return None
+
+    # Unpack the top-left corner (x1, y1)
+    x1, y1 = map_pinpoint_match
+
+    # Set x2 and y2 to the bottom-right corner of the boss_text_img
+    h, w = boss_text_img.shape[:2]
+    x2 = w - 23
+    y2 = h
+
+    # Crop the image from (x1, y1) to the end of the image
+    cropped_img = boss_text_img[y1:y2, x1:x2]
+    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\template_img_{get_current_datetime_string()}.png", cropped_img)
+
+    thread.cache['join_rally_controls']['cache']['skipped_monster_cords_img'].append(cropped_img)
