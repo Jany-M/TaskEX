@@ -18,3 +18,4 @@ temp/
 /gui/controllers/__pycache__
 /gui/generated/__pycache__
 /db/__pycache__
+resources/resources_rc.py
