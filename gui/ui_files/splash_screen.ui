@@ -171,7 +171,7 @@ QPushButton:pressed {
              <string notr="true">color: rgb(254, 121, 199);</string>
             </property>
             <property name="text">
-             <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;TaskEnforcerX &lt;span style=&quot; font-size:12pt;&quot;&gt;v&lt;/span&gt;&lt;span style=&quot; font-size:16pt;&quot;&gt;0.0.0&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;TaskEnforcerX &lt;span style=&quot; font-size:12pt;&quot;&gt;v&lt;/span&gt;&lt;span style=&quot; font-size:16pt;&quot;&gt;0.0.1&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
             </property>
             <property name="alignment">
              <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -502,7 +502,7 @@ QProgressBar::chunk{
              <string notr="true">color: rgb(98, 114, 164);</string>
             </property>
             <property name="text">
-             <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;By: MwoNuZzz&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;By: MwoNuZzz &amp; TheAnt&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
             </property>
             <property name="alignment">
              <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>

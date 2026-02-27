@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'splash_screen.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.7.2
+## Created by: Qt User Interface Compiler version 6.10.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -166,6 +166,7 @@ class Ui_SplashScreen(object):
 
         self.btn_login = QPushButton(self.login_frame)
         self.btn_login.setObjectName(u"btn_login")
+        self.btn_login.setEnabled(False)
         sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         sizePolicy3.setHorizontalStretch(0)
         sizePolicy3.setVerticalStretch(0)
@@ -177,6 +178,7 @@ class Ui_SplashScreen(object):
 
         self.username = QLineEdit(self.login_frame)
         self.username.setObjectName(u"username")
+        self.username.setEnabled(False)
         sizePolicy3.setHeightForWidth(self.username.sizePolicy().hasHeightForWidth())
         self.username.setSizePolicy(sizePolicy3)
         self.username.setMinimumSize(QSize(300, 45))
@@ -185,6 +187,7 @@ class Ui_SplashScreen(object):
 
         self.password = QLineEdit(self.login_frame)
         self.password.setObjectName(u"password")
+        self.password.setEnabled(False)
         self.password.setMinimumSize(QSize(300, 45))
         self.password.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
@@ -193,6 +196,7 @@ class Ui_SplashScreen(object):
 
         self.remember_choice = QCheckBox(self.login_frame)
         self.remember_choice.setObjectName(u"remember_choice")
+        self.remember_choice.setEnabled(False)
         self.remember_choice.setMinimumSize(QSize(0, 40))
 
         self.gridLayout_2.addWidget(self.remember_choice, 2, 0, 1, 1)

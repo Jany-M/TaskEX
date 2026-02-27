@@ -53,8 +53,8 @@ def _str_to_bool(value: str) -> bool:
 # APP TEXTS
 TITLE = "TaskEX"
 TITLE_DESCRIPTION = "Ultimate Edition"
-VERSION = "v0.0.0"
-CREDITS = "By: MwoNuZzz"
+VERSION = "v0.0.1"
+CREDITS = "By: MwoNuZzz & TheAnt"
 DEBUG_MODE = _str_to_bool(os.getenv("TASKEX_DEBUG", "0"))
 STRICT_MONSTER_MATCH = _str_to_bool(os.getenv("TASKEX_STRICT_MONSTER_MATCH", "0"))
 # Private variable (not directly accessible)

@@ -9,9 +9,10 @@ __pycache__/
 **/__pycache__/
 **/db/task_ex.db
 db/task_ex.db
-/assets/540p/generals
+assets/540p/generals/
 resources/resources_rc.py
 *.log
 convert.txt
 db/task_ex.db
-/TaskEnforcerX.egg-info
+TaskEnforcerX.egg-info/
+db/task_ex.db

@@ -1,17 +1,28 @@
 #!/usr/bin/env python
-"""Find and display the latest march dialog screenshot"""
+"""
+Debug helper: find the latest saved march-dialog screenshot.
+
+Why use this:
+- Join Rally debug mode saves march dialog captures when diagnosing March button detection.
+- This script quickly prints the newest screenshot so you can inspect button placement.
+
+How to use:
+- From project root: `python debug/show_march_dialog.py`
+- The script auto-resolves `<project_root>/temp/march_dialog_*.png` regardless of current working directory.
+"""
 import os
 import glob
 from pathlib import Path
 
 # Find all march dialog screenshots
-temp_dir = "temp"
-pattern = os.path.join(temp_dir, "march_dialog_*.png")
+project_root = Path(__file__).resolve().parent.parent
+temp_dir = project_root / "temp"
+pattern = str(temp_dir / "march_dialog_*.png")
 files = glob.glob(pattern)
 
 if not files:
     print("❌ No march dialog screenshots found")
-    print(f"   Looked in: {temp_dir}/march_dialog_*.png")
+    print(f"   Looked in: {temp_dir / 'march_dialog_*.png'}")
 else:
     # Get the most recent file
     latest_file = max(files, key=os.path.getctime)
