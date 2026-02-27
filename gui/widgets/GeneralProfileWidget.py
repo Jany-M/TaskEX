@@ -63,38 +63,41 @@ class GeneralProfileWidget(QWidget):
 
         # Confirm with the user
         if show_confirmation_dialog(self, "confirm", f"Are you sure you want to remove {self.ui.edit_general.text()}?"):
-            with get_session() as session:
-                try:
-                    # Query the database to find the general by its ID
-                    general = session.query(General).filter(
-                        General.id == self.ui.edit_general.property('general_id')).first()
-                    # print(self.ui.edit_general.property('general_id'))
-                    if general:
-                        # Delete the general's record from the database
-                        session.delete(general)
-                        session.commit()  # Commit the transaction to apply changes
-                        self.scan_console.emit(
-                            f"General '{self.ui.edit_general.text()}' has been removed.")
+            session = get_session()
 
-                        # Check if the image file exists and delete it
-                        general_details_img = os.path.join(str(self.image_path), self.data.details_image_name)
-                        general_list_img = os.path.join(str(self.image_path),
-                                                        self.data.list_image_name) if self.data.list_image_name else None
+            try:
+                # Query the database to find the general by its ID
+                general = session.query(General).filter(General.id == self.ui.edit_general.property('general_id')).first()
+                # print(self.ui.edit_general.property('general_id'))
+                if general:
+                    # Delete the general's record from the database
+                    session.delete(general)
+                    session.commit()  # Commit the transaction to apply changes
+                    self.scan_console.emit(
+                        f"General '{self.ui.edit_general.text()}' has been removed.")
 
-                        # Delete the details view image if it exists
-                        if os.path.exists(general_details_img):
-                            os.remove(general_details_img)
+                    # Check if the image file exists and delete it
+                    general_details_img = os.path.join(str(self.image_path), self.data.details_image_name)
+                    general_list_img = os.path.join(str(self.image_path),
+                                                    self.data.list_image_name) if self.data.list_image_name else None
 
-                        # Delete the list view image if the file path is valid and the image exists
-                        if general_list_img and os.path.exists(general_list_img):
-                            os.remove(general_list_img)
-                    else:
-                        self.scan_console.emit(
-                            f"Error: General '{self.ui.edit_general.text()}' not found in the database.")
+                    # Delete the details view image if it exists
+                    if os.path.exists(general_details_img):
+                        os.remove(general_details_img)
 
-                except Exception as e:
-                    session.rollback()  # Rollback in case of error
-                    self.scan_console.emit(f"Error deleting general: {e}")
+                    # Delete the list view image if the file path is valid and the image exists
+                    if general_list_img and os.path.exists(general_list_img):
+                        os.remove(general_list_img)
+                else:
+                    self.scan_console.emit(
+                        f"Error: General '{self.ui.edit_general.text()}' not found in the database.")
+
+            except Exception as e:
+                session.rollback()  # Rollback in case of error
+                self.scan_console.emit(f"Error deleting general: {e}")
+
+            finally:
+                session.close()
 
             # Remove the widget from the UI
             if self.flow_layout:
@@ -104,15 +107,21 @@ class GeneralProfileWidget(QWidget):
     def switch_view(self,checked=False):
         if not checked:
             pixmap = QPixmap(os.path.join(str(self.image_path),self.data.details_image_name))
-            half_height = int(pixmap.height() / 2)
-            pixmap = pixmap.scaledToHeight(half_height)
-            self.ui.general_icon_label.setPixmap(pixmap)
+            if pixmap.isNull():
+                self.ui.general_icon_label.clear()
+            else:
+                half_height = int(pixmap.height() / 2)
+                pixmap = pixmap.scaledToHeight(half_height)
+                self.ui.general_icon_label.setPixmap(pixmap)
         else:
             if self.data.list_image_name:
                 pixmap = QPixmap(os.path.join(str(self.image_path),self.data.list_image_name))
-                half_height = int(pixmap.height() / 1.5)
-                pixmap = pixmap.scaledToHeight(half_height)
-                self.ui.general_icon_label.setPixmap(pixmap)
+                if pixmap.isNull():
+                    self.ui.general_icon_label.clear()
+                else:
+                    half_height = int(pixmap.height() / 1.5)
+                    pixmap = pixmap.scaledToHeight(half_height)
+                    self.ui.general_icon_label.setPixmap(pixmap)
             else:
                 self.ui.general_icon_label.clear()
 

@@ -20,205 +20,217 @@ from utils.image_recognition_utils import template_match_coordinates, crop_image
 
 def get_all_boss_monster_data_for_bm():
     # Get all the bosses
-    with get_session() as session:
-        # Eagerly load the related MonsterImage, MonsterCategory, and MonsterLogic using joinedload
-        sorted_logic_1_with_category_1 = (
-            session.query(BossMonster)
-            .join(MonsterImage)
-            .join(MonsterCategory)
-            .join(MonsterLogic)
-            .options(
-                joinedload(BossMonster.monster_image),  # Eagerly load monster_image
-                joinedload(BossMonster.monster_category),  # Eagerly load monster_category
-                joinedload(BossMonster.monster_logic)  # Eagerly load monster_logic
-            )
-            .filter(BossMonster.monster_logic_id == 1, BossMonster.monster_category_id == 1)
-            .order_by(BossMonster.id)  # Sort by ID
-            .all()
+    session = get_session()
+
+    # Eagerly load the related MonsterImage, MonsterCategory, and MonsterLogic using joinedload
+    sorted_logic_1_with_category_1 = (
+        session.query(BossMonster)
+        .join(MonsterImage)
+        .join(MonsterCategory)
+        .join(MonsterLogic)
+        .options(
+            joinedload(BossMonster.monster_image),  # Eagerly load monster_image
+            joinedload(BossMonster.monster_category),  # Eagerly load monster_category
+            joinedload(BossMonster.monster_logic)  # Eagerly load monster_logic
         )
+        .filter(BossMonster.monster_logic_id == 1, BossMonster.monster_category_id == 1)
+        .order_by(BossMonster.id)  # Sort by ID
+        .all()
+    )
 
-        sorted_logic_1_except_category_1_and_logic_2_3_4 = (
-            session.query(BossMonster)
-            .join(MonsterImage)
-            .join(MonsterCategory)
-            .join(MonsterLogic)
-            .options(
-                joinedload(BossMonster.monster_image),  # Eagerly load monster_image
-                joinedload(BossMonster.monster_category),  # Eagerly load monster_category
-                joinedload(BossMonster.monster_logic)  # Eagerly load monster_logic
-            )
-            .filter(
-                BossMonster.monster_logic_id.in_([1, 2, 3, 4]),
-                ~BossMonster.id.in_([boss.id for boss in sorted_logic_1_with_category_1])
-            )
-            .order_by(asc(BossMonster.preview_name))  # Sort by preview_name
-            .all()
+    sorted_logic_1_except_category_1_and_logic_2_3_4 = (
+        session.query(BossMonster)
+        .join(MonsterImage)
+        .join(MonsterCategory)
+        .join(MonsterLogic)
+        .options(
+            joinedload(BossMonster.monster_image),  # Eagerly load monster_image
+            joinedload(BossMonster.monster_category),  # Eagerly load monster_category
+            joinedload(BossMonster.monster_logic)  # Eagerly load monster_logic
         )
+        .filter(
+            BossMonster.monster_logic_id.in_([1, 2, 3, 4]),
+            ~BossMonster.id.in_([boss.id for boss in sorted_logic_1_with_category_1])
+        )
+        .order_by(asc(BossMonster.preview_name))  # Sort by preview_name
+        .all()
+    )
 
-        # Combine the results
-        boss_monsters = sorted_logic_1_with_category_1 + sorted_logic_1_except_category_1_and_logic_2_3_4
+    # Combine the results
+    boss_monsters = sorted_logic_1_with_category_1 + sorted_logic_1_except_category_1_and_logic_2_3_4
 
+    session.close()
     return boss_monsters
 
 
-def fetch_boss_monster_data(logic_id, category_id=None, order_by=None):
-    with get_session() as session:
-        # If logic_id is a list (e.g., [2, 3, 4]), use the `in_` operator for filtering
-        if isinstance(logic_id, list):
-            query = session.query(BossMonster).join(MonsterImage).join(MonsterCategory).join(MonsterLogic).options(
-                joinedload(BossMonster.monster_image),
-                joinedload(BossMonster.monster_category),
-                joinedload(BossMonster.monster_logic),
-                joinedload(BossMonster.levels),
-            ).filter(BossMonster.monster_logic_id.in_(logic_id))
-        else:
-            query = session.query(BossMonster).join(MonsterImage).join(MonsterCategory).join(MonsterLogic).options(
-                joinedload(BossMonster.monster_image),
-                joinedload(BossMonster.monster_category),
-                joinedload(BossMonster.monster_logic),
-                joinedload(BossMonster.levels),
-            ).filter(BossMonster.monster_logic_id == logic_id)
+def fetch_boss_monster_data(session, logic_id, category_id=None, order_by=None):
+    # If logic_id is a list (e.g., [2, 3, 4]), use the `in_` operator for filtering
+    if isinstance(logic_id, list):
+        query = session.query(BossMonster).join(MonsterImage).join(MonsterCategory).join(MonsterLogic).options(
+            joinedload(BossMonster.monster_image),
+            joinedload(BossMonster.monster_category),
+            joinedload(BossMonster.monster_logic),
+        ).filter(BossMonster.monster_logic_id.in_(logic_id))
+    else:
+        query = session.query(BossMonster).join(MonsterImage).join(MonsterCategory).join(MonsterLogic).options(
+            joinedload(BossMonster.monster_image),
+            joinedload(BossMonster.monster_category),
+            joinedload(BossMonster.monster_logic),
+        ).filter(BossMonster.monster_logic_id == logic_id)
 
-        # Category filter logic
-        if category_id is not None:
-            query = query.filter(BossMonster.monster_category_id == category_id)
-        elif logic_id == 1 and category_id is None:
-            # Exclude Category 1 if category_id is None for logic 1
-            query = query.filter(BossMonster.monster_category_id != 1)
+    # Category filter logic
+    if category_id is not None:
+        query = query.filter(BossMonster.monster_category_id == category_id)
+    elif logic_id == 1 and category_id is None:
+        # Exclude Category 1 if category_id is None for logic 1
+        query = query.filter(BossMonster.monster_category_id != 1)
 
-        # Ordering logic
-        if order_by:
-            query = query.order_by(BossMonster.preview_name)
+    # Ordering logic
+    if order_by:
+        query = query.order_by(BossMonster.preview_name)
 
-        return query.all()
+    return query.all()
 
 
 
 def export_selected_bosses(boss_ids):
-    with get_session() as session:
-        export_data = []
+    session = get_session()
+    export_data = []
 
-        # Directory to store the export data
-        export_folder = QFileDialog.getExistingDirectory(None, "Select Export Folder")
-        if not export_folder:
-            return  # User canceled the operation
+    # Directory to store the export data
+    export_folder = QFileDialog.getExistingDirectory(None, "Select Export Folder")
+    if not export_folder:
+        return  # User canceled the operation
 
-        # Temporary folder for staging files before zipping
-        temp_export_folder = os.path.join(export_folder, "export_temp")
-        os.makedirs(temp_export_folder, exist_ok=True)
+    # Temporary folder for staging files before zipping
+    temp_export_folder = os.path.join(export_folder, "export_temp")
+    os.makedirs(temp_export_folder, exist_ok=True)
 
-        # Create an images folder to store the images
-        images_folder = os.path.join(temp_export_folder, "images")
-        os.makedirs(images_folder, exist_ok=True)
+    # Create an images folder to store the images
+    images_folder = os.path.join(temp_export_folder, "images")
+    os.makedirs(images_folder, exist_ok=True)
 
-        # Loop through each selected boss id
-        for boss_id in boss_ids:
-            boss = (
-                session.query(BossMonster)
-                .options(
-                    joinedload(BossMonster.monster_category),
-                    joinedload(BossMonster.monster_image),
-                    joinedload(BossMonster.monster_logic),
-                    joinedload(BossMonster.levels)
-                )
-                .filter(BossMonster.id == boss_id)
-                .one_or_none()
+    # Loop through each selected boss id
+    for boss_id in boss_ids:
+        boss = (
+            session.query(BossMonster)
+            .options(
+                joinedload(BossMonster.monster_category),
+                joinedload(BossMonster.monster_image),
+                joinedload(BossMonster.monster_logic),
+                joinedload(BossMonster.levels)
             )
+            .filter(BossMonster.id == boss_id)
+            .one_or_none()
+        )
 
-            if boss:
-                # Collect data for YAML
-                boss_data = {
-                    "preview_name": boss.preview_name,
-                    "category": boss.monster_category.name,
-                    "logic": boss.monster_logic.logic,
-                    "enable_map_scan": boss.enable_map_scan,
-                    "levels": [{"level": lvl.level, "name": lvl.name, "power": lvl.power} for lvl in boss.levels]
-                }
+        if boss:
+            # Collect data for YAML
+            boss_data = {
+                "preview_name": boss.preview_name,
+                "category": boss.monster_category.name,
+                "logic": boss.monster_logic.logic,
+                "enable_map_scan": boss.enable_map_scan,
+                "levels": [{"level": lvl.level, "name": lvl.name, "power": lvl.power} for lvl in boss.levels]
+            }
 
-                if boss.monster_image:
-                    image_data = {"preview_image": boss.monster_image.preview_image}
+            if boss.monster_image:
+                image_data = {"preview_image": boss.monster_image.preview_image}
 
-                    if boss.enable_map_scan:
-                        # Include these fields only when enable_map_scan is True
-                        if boss.monster_image.img_540p:
-                            image_data["img_540p"] = boss.monster_image.img_540p
-                        if boss.monster_image.img_threshold:
-                            image_data["img_threshold"] = boss.monster_image.img_threshold
-                        if boss.monster_image.click_pos:
-                            image_data["click_pos"] = boss.monster_image.click_pos
+                if boss.enable_map_scan:
+                    # Include these fields only when enable_map_scan is True
+                    if boss.monster_image.img_540p:
+                        image_data["img_540p"] = boss.monster_image.img_540p
+                    if boss.monster_image.img_threshold:
+                        image_data["img_threshold"] = boss.monster_image.img_threshold
+                    if boss.monster_image.click_pos:
+                        image_data["click_pos"] = boss.monster_image.click_pos
 
-                    boss_data["image"] = image_data
+                boss_data["image"] = image_data
 
-                    # Copy images if they exist
-                    copy_image_to_export(images_folder, boss.monster_image.preview_image, "preview")
-                    if boss.enable_map_scan and boss.monster_image.img_540p:
-                        copy_image_to_export(images_folder, boss.monster_image.img_540p, "540p")
+                # Copy images if they exist
+                copy_image_to_export(images_folder, boss.monster_image.preview_image, "preview")
+                if boss.enable_map_scan and boss.monster_image.img_540p:
+                    copy_image_to_export(images_folder, boss.monster_image.img_540p, "540p")
 
-                export_data.append(boss_data)
+            export_data.append(boss_data)
 
-        # Create the YAML file
-        yaml_file_path = os.path.join(temp_export_folder, "boss_monsters.yaml")
-        with open(yaml_file_path, "w") as yaml_file:
-            yaml.dump(export_data, yaml_file, default_flow_style=False)
+    # Create the YAML file
+    yaml_file_path = os.path.join(temp_export_folder, "boss_monsters.yaml")
+    with open(yaml_file_path, "w") as yaml_file:
+        yaml.dump(export_data, yaml_file, default_flow_style=False)
 
-        # Zip everything
-        # Get current time in milliseconds
-        current_time_ms = int(time.time() * 1000)
+    # Zip everything
+    # Get current time in milliseconds
+    current_time_ms = int(time.time() * 1000)
 
-        # Generate zip file name with datetime in milliseconds
-        zip_file_name = f"boss_monsters_{current_time_ms}.zip"
-        zip_file_path = os.path.join(export_folder, zip_file_name)
+    # Generate zip file name with datetime in milliseconds
+    zip_file_name = f"boss_monsters_{current_time_ms}.zip"
+    zip_file_path = os.path.join(export_folder, zip_file_name)
 
-        zip_export_files(temp_export_folder, zip_file_path)
+    zip_export_files(temp_export_folder, zip_file_path)
 
-        # Clean up temporary export folder
-        shutil.rmtree(temp_export_folder)
+    # Clean up temporary export folder
+    shutil.rmtree(temp_export_folder)
 
-        # Confirmation message
-        QMessageBox.information(None, "Export Successful", f"File saved to: {zip_file_path}")
+    # Confirmation message
+    QMessageBox.information(None, "Export Successful", f"File saved to: {zip_file_path}")
+
+    session.close()
 
 
 def create_monster_from_zip_data(data, temp_extract_folder):
     """Create a BossMonster object from YAML data."""
-    with get_session() as session:
-        monster = BossMonster(
-            preview_name=data["preview_name"],
-            enable_map_scan=data.get("enable_map_scan", False)
+    session = get_session()
+
+    monster = BossMonster(
+        preview_name=data["preview_name"],
+        enable_map_scan=data.get("enable_map_scan", False)
+    )
+
+    # Set category and logic
+    category = session.query(MonsterCategory).filter_by(name=data["category"]).one_or_none()
+    logic = session.query(MonsterLogic).filter_by(logic=data["logic"]).one_or_none()
+    if category:
+        monster.monster_category_id = category.id
+    if logic:
+        monster.monster_logic_id = logic.id
+
+    # Handle images
+    if "image" in data:
+        monster_image = MonsterImage(
+            preview_image=data["image"].get("preview_image"),
+            img_540p=data["image"].get("img_540p"),
+            img_threshold=data["image"].get("img_threshold"),
+            click_pos=data["image"].get("click_pos")
         )
+        monster.monster_image = monster_image
 
-        # Set category and logic
-        category = session.query(MonsterCategory).filter_by(name=data["category"]).one_or_none()
-        logic = session.query(MonsterLogic).filter_by(logic=data["logic"]).one_or_none()
-        if category:
-            monster.monster_category_id = category.id
-        if logic:
-            monster.monster_logic_id = logic.id
+        # Store image path for later use
+        monster.preview_img_path = os.path.join(temp_extract_folder, "images", monster.monster_image.preview_image)
+        monster.p540_img_path = os.path.join(temp_extract_folder, "images",
+                                             monster.monster_image.img_540p) if monster.monster_image.img_540p else None
 
-        # Handle images
-        if "image" in data:
-            monster_image = MonsterImage(
-                preview_image=data["image"].get("preview_image"),
-                img_540p=data["image"].get("img_540p"),
-                img_threshold=data["image"].get("img_threshold"),
-                click_pos=data["image"].get("click_pos")
-            )
-            monster.monster_image = monster_image
+    # Add levels
+    for level_data in data.get("levels", []):
+        level = MonsterLevel(
+            level=level_data["level"],
+            name=level_data["name"],
+            power=level_data["power"]
+        )
+        monster.levels.append(level)
 
-            # Store image path for later use
-            monster.preview_img_path = os.path.join(temp_extract_folder, "images", monster.monster_image.preview_image)
-            monster.p540_img_path = os.path.join(temp_extract_folder, "images",
-                                               monster.monster_image.img_540p) if monster.monster_image.img_540p else None
-
-        # Add levels
-        for level_data in data.get("levels", []):
-            level = MonsterLevel(
-                level=level_data["level"],
-                name=level_data["name"],
-                power=level_data["power"]
-            )
-            monster.levels.append(level)
-
+    session.close()
     return monster
+
+
+def _log_capture_debug(message: str) -> None:
+    try:
+        with open("capture_debug.log", "a", encoding="utf-8", errors="replace") as f:
+            f.write(f"{message}\n")
+    except Exception:
+        # Avoid raising logging errors during capture flow
+        pass
 
 
 def copy_image_to_export(images_folder, image_name, image_type):
@@ -228,7 +240,7 @@ def copy_image_to_export(images_folder, image_name, image_type):
     else:
         base_folder = os.path.join('assets', '540p', 'monsters')
     image_path = os.path.join(base_folder, image_name)
-    print(image_path)
+    _log_capture_debug(f"[DEBUG] export image path: {image_path}")
 
     if os.path.exists(image_path):
         dest_image_path = os.path.join(images_folder, f"{image_name}")
@@ -263,12 +275,12 @@ def generate_monster_template(captured_images):
         # Calculate the average value of the threshold image as a scalar threshold (normalized to [0, 1])
         scalar_threshold = np.mean(threshold_image) / 255.0
 
-        print(f"[INFO] Calculated scalar threshold: {scalar_threshold}")
+        _log_capture_debug(f"[INFO] Calculated scalar threshold: {scalar_threshold}")
 
         return template, scalar_threshold
 
     except Exception as e:
-        print(f"[ERROR] Failed to generate template: {e}")
+        _log_capture_debug(f"[ERROR] Failed to generate template: {e}")
         return None, None
 
 
@@ -287,7 +299,7 @@ def find_optimal_threshold(image):
         return threshold / 255.0  # Normalize to [0, 1] range
 
     except Exception as e:
-        print(f"[ERROR] Failed to find optimal threshold: {e}")
+        _log_capture_debug(f"[ERROR] Failed to find optimal threshold: {e}")
         return 0.5  # Default threshold in case of error
 
 
@@ -309,7 +321,7 @@ def start_simulate_monster_click(thread):
             thread.adb_manager.tap(x, y)
 
     except Exception as e:
-        print(f"[ERROR] Failed to simulate the click: {e}")
+        _log_capture_debug(f"[ERROR] Failed to simulate the click: {e}")
 
 
 def generate_template_image(thread):
@@ -342,15 +354,38 @@ def generate_template_image(thread):
         thread.ref.template_ready.emit(template, best_threshold)
 
     except Exception as e:
-        print(f"[ERROR] Failed to generate template: {e}")
+        _log_capture_debug(f"[ERROR] Failed to generate template: {e}")
 
     finally:
         # Reset the icon and re-enable the button
         thread.ref.reset_template_btn.emit()
 
 def capture_template_ss(thread):
-    # Capture the image
-    captured_image = thread.adb_manager.take_screenshot()
-
-    # Emit the signal to update the Selection Tool Widget
-    thread.ref.frame_ready.emit(convert_cv_to_qimage(captured_image))
+    try:
+        with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+            f.write(f"[DEBUG] capture_template_ss() called in thread\n")
+        
+        # Capture the image
+        captured_image = thread.adb_manager.take_screenshot()
+        
+        if captured_image is None:
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[ERROR] take_screenshot returned None\n")
+            return
+        
+        with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+            f.write(f"[DEBUG] Screenshot captured: {captured_image.shape}\n")
+        
+        # Emit the signal to update the Selection Tool Widget
+        qimage = convert_cv_to_qimage(captured_image)
+        with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+            f.write(f"[DEBUG] Converted to QImage, emitting frame_ready signal\n")
+        thread.ref.frame_ready.emit(qimage)
+        with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+            f.write(f"[DEBUG] frame_ready signal emitted successfully\n")
+    
+    except Exception as e:
+        with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+            f.write(f"[ERROR] Exception in capture_template_ss: {e}\n")
+            import traceback
+            f.write(traceback.format_exc())

@@ -198,8 +198,7 @@ def find_emulator_ports():
                     if local_port < 26000 and local_port != 21501 and remote_address == '0.0.0.0':
                         emulator_ports.append((emulator_player_names[process_name], local_port))
 
-            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError) as e:
-                print(e)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
                 continue
 
     return emulator_ports
@@ -217,24 +216,25 @@ def is_emulator_port_available(port: int) -> bool:
             sock.settimeout(1)
             result = sock.connect_ex(('127.0.0.1', port))
             if result != 0:
-                print(f"[DEBUG] Port {port} is not accepting connections.")
                 return False  # Port is not available
 
         # Step 2: Verify if the port corresponds to an emulator instance using ADB
         ip_address = f"127.0.0.1:{port}"
-        adb_result = subprocess.run(
-            ["adb", "connect", ip_address],
-            capture_output=True,
-            text=True
-        )
-
-        if "connected to" in adb_result.stdout.lower():
-            print(f"[DEBUG] Emulator connected on port {port}.")
-            return True  # Valid emulator instance
-        else:
-            print(f"[DEBUG] Port {port} is not a valid emulator instance: {adb_result.stdout}")
-            return False
+        try:
+            adb_result = subprocess.run(
+                ["adb", "connect", ip_address],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if "connected to" in adb_result.stdout.lower():
+                return True  # Valid emulator instance
+            else:
+                return False
+        except:
+            # If ADB check fails, still return True if socket is open (emulator responding)
+            return True
 
     except Exception as e:
-        print(f"[ERROR] Exception occurred while checking port {port}: {e}")
+        # Silent fail - return False if anything goes wrong
         return False

@@ -137,8 +137,11 @@ class MonsterUploadDialog(QDialog, Ui_Monster_Upload_Dialog):
                 monster_preview = os.path.join(str(preview_path), "default_preview.png")
 
             pixmap = QPixmap(monster_preview)
-            pixmap = pixmap.scaledToHeight(92)
-            widget.ui.monster_icon_label.setPixmap(pixmap)
+            if pixmap.isNull():
+                widget.ui.monster_icon_label.clear()
+            else:
+                pixmap = pixmap.scaledToHeight(92)
+                widget.ui.monster_icon_label.setPixmap(pixmap)
 
             # Update the frame
             # Get the corresponding color for the logic ID
@@ -162,33 +165,34 @@ class MonsterUploadDialog(QDialog, Ui_Monster_Upload_Dialog):
         # TODO Validate the bosses
 
         # Add to the database
-        with get_session() as session:
-            try:
-                for monster in self.boss_monster_list:
-                    session.add(monster)
-                    # Commit to assign IDs to new monsters
-                session.commit()
+        session = get_session()
+        try:
+            for monster in self.boss_monster_list:
+                session.add(monster)
+                # Commit to assign IDs to new monsters
+            session.commit()
 
-                # After commit, add each monster to the main frame
-                for monster in self.boss_monster_list:
-                    # Move the file to the preview folder if file_path is set
-                    self.log_message.emit(f"Adding {monster.preview_name} to the system...")
-                    if monster.preview_img_path and os.path.exists(monster.preview_img_path):
-                        copy_image_to_preview(monster.preview_img_path, monster.monster_image.preview_image)
-                    if monster.p540_img_path and os.path.exists(monster.p540_img_path):
-                        copy_image_to_template(monster.p540_img_path, monster.monster_image.img_540p)
+            # After commit, add each monster to the main frame
+            for monster in self.boss_monster_list:
+                # Move the file to the preview folder if file_path is set
+                self.log_message.emit(f"Adding {monster.preview_name} to the system...")
+                if monster.preview_img_path and os.path.exists(monster.preview_img_path):
+                    copy_image_to_preview(monster.preview_img_path, monster.monster_image.preview_image)
+                if monster.p540_img_path and os.path.exists(monster.p540_img_path):
+                    copy_image_to_template(monster.p540_img_path, monster.monster_image.img_540p)
 
-                    # Now we can call add_monster_to_main_frame because monster IDs are assigned
-                    self.add_monster_to_main_frame(monster)
-                self.log_message.emit(
-                    'New monsters added to the system. Please restart to update the existing instances.')
-                # Disable the upload button after saving
-                self.upload_monsters_btn.setEnabled(False)
-                self.boss_monster_list.clear()  # Clear the list after saving
+                # Now we can call add_monster_to_main_frame because monster IDs are assigned
+                self.add_monster_to_main_frame(monster)
+            self.log_message.emit('New monsters added to the system. Please restart to update the existing instances.')
+            # Disable the upload button after saving
+            self.upload_monsters_btn.setEnabled(False)
+            self.boss_monster_list.clear()  # Clear the list after saving
 
-            except Exception as e:
-                session.rollback()
-                QMessageBox.critical(self, "Save Error", f"Failed to save monsters. Error: {str(e)}")
+        except Exception as e:
+            session.rollback()
+            QMessageBox.critical(self, "Save Error", f"Failed to save monsters. Error: {str(e)}")
+        finally:
+            session.close()
 
     def add_monster_to_main_frame(self, boss):
         flow_layout = self.main_window.widgets.monsters_list_flow_layout

@@ -1,5 +1,6 @@
 import os
 import subprocess
+import re
 from typing import Optional
 
 import adbutils
@@ -11,7 +12,23 @@ class ADBManager:
     def __init__(self, port: str):
         self.device = None
         self.port = port
+        self.last_resolution_debug = ""
         self.connect_to_device()
+
+    @staticmethod
+    def _parse_wm_size_output(output: str) -> Optional[tuple[int, int]]:
+        if not output:
+            return None
+
+        physical_match = re.search(r"Physical\s+size:\s*(\d+)x(\d+)", output, flags=re.IGNORECASE)
+        if physical_match:
+            return int(physical_match.group(1)), int(physical_match.group(2))
+
+        override_match = re.search(r"Override\s+size:\s*(\d+)x(\d+)", output, flags=re.IGNORECASE)
+        if override_match:
+            return int(override_match.group(1)), int(override_match.group(2))
+
+        return None
 
     @staticmethod
     def initialize_adb() -> None:
@@ -159,16 +176,65 @@ class ADBManager:
         Returns:
             A tuple (width, height) if successful, otherwise None.
         """
-        try:
-            # Execute the ADB command to get screen resolution
-            result = self.device.shell("wm size")
-            if "Physical size:" in result:
-                resolution = result.split("Physical size:")[-1].strip()
-                width, height = map(int, resolution.split("x"))
-                return width, height
-            else:
-                print(f"Unexpected output while getting resolution: {result}")
-        except Exception as e:
-            print(f"Error retrieving screen resolution: {e}")
+        serial = f"127.0.0.1:{self.port}"
+        debug_parts = []
 
+        if not self.device:
+            debug_parts.append("adbutils device handle: None")
+        else:
+            try:
+                result = self.device.shell("wm size")
+                parsed = self._parse_wm_size_output(result)
+                debug_parts.append(f"adbutils wm size: {repr(result)}")
+                if parsed:
+                    self.last_resolution_debug = " | ".join(debug_parts)
+                    return parsed
+            except Exception as e:
+                debug_parts.append(f"adbutils wm size error: {e}")
+                if "closed" in str(e).lower():
+                    self.device = None
+
+        try:
+            process = subprocess.run(
+                ["adb", "-s", serial, "shell", "wm", "size"],
+                capture_output=True,
+                text=True
+            )
+            debug_parts.append(f"adb shell wm size rc={process.returncode}")
+            if process.stdout:
+                debug_parts.append(f"adb shell wm size stdout: {repr(process.stdout.strip())}")
+            if process.stderr:
+                debug_parts.append(f"adb shell wm size stderr: {repr(process.stderr.strip())}")
+
+            if process.returncode == 0:
+                parsed = self._parse_wm_size_output(process.stdout)
+                if parsed:
+                    self.last_resolution_debug = " | ".join(debug_parts)
+                    return parsed
+
+            state_process = subprocess.run(
+                ["adb", "-s", serial, "get-state"],
+                capture_output=True,
+                text=True
+            )
+            debug_parts.append(
+                f"adb get-state rc={state_process.returncode}, stdout={repr(state_process.stdout.strip())}, stderr={repr(state_process.stderr.strip())}"
+            )
+
+            devices_process = subprocess.run(
+                ["adb", "devices"],
+                capture_output=True,
+                text=True
+            )
+            if devices_process.stdout:
+                serial_line = next(
+                    (line.strip() for line in devices_process.stdout.splitlines() if serial in line),
+                    "serial not listed"
+                )
+                debug_parts.append(f"adb devices entry: {serial_line}")
+        except Exception as e:
+            debug_parts.append(f"resolution diagnostics error: {e}")
+
+        self.last_resolution_debug = " | ".join(debug_parts)
+        print(f"Error retrieving screen resolution: {self.last_resolution_debug}")
         return None

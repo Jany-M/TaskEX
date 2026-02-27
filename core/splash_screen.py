@@ -27,20 +27,9 @@ class SplashScreen(QMainWindow):
         self.ui.label_title_version.setText(
             f'<html><head/><body><p>TaskEnforcerX <span style=" font-size:16pt;">{VERSION}</span></p></body></html>')
 
-        # Check if the user has previously logged in as a guest
-        self.logged_in = self.check_previous_login()
-        # print(self.logged_in)
-        if self.logged_in:
-            self.hide_login_frame()
-
-            # Emit signal after event loop starts
-            QTimer.singleShot(0, self.load_signal.emit)
-
-        else:
-            self.ui.btn_login_guest.clicked.connect(self.login_as_guest)
-            self.ui.btn_exit.clicked.connect(lambda: sys.exit())
-            # Set Splash screen window height for login
-            self.setFixedHeight(410)
+        # Always skip login and continue directly to loading.
+        self.hide_login_frame()
+        QTimer.singleShot(0, self.load_signal.emit)
 
         self.show()  # Display the splash screen
 

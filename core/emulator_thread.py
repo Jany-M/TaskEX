@@ -1,12 +1,14 @@
 import time
 from datetime import datetime
 import os
+import traceback
 
 import cv2
 import ntplib
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
+from config.settings import get_expire, get_debug_mode
 from core.services.bm_monsters_service import start_simulate_monster_click, \
     generate_template_image, capture_template_ss
 from core.services.bm_scan_generals_service import start_scan_generals
@@ -16,7 +18,6 @@ from utils.adb_manager import ADBManager
 import logging
 
 from utils.get_controls_info import get_game_settings_controls
-from utils.helper_utils import get_current_datetime_string
 from utils.image_recognition_utils import is_template_match, template_match_coordinates
 
 
@@ -59,57 +60,46 @@ class EmulatorThread(QThread):
                 with open(log_file_path, "w") as f:
                     pass  # Create an empty log file
             file_handler = logging.FileHandler(log_file_path, mode="a")
-            if self.operation_type == "emu":
-                file_formatter = logging.Formatter('[%(name)s] [%(asctime)s] [%(levelname)s]: %(message)s')
-            elif self.operation_type == "scan_general":
-                file_formatter = logging.Formatter('%(message)s')
-
+            file_formatter = logging.Formatter('[%(name)s] [%(asctime)s] [%(levelname)s]: %(message)s')
             file_handler.setFormatter(file_formatter)
+            file_handler.setLevel(logging.DEBUG if get_debug_mode() else logging.ERROR)
             logger.addHandler(file_handler)
 
-            # Emulator console handler setup (for operation_type == "emu" with QTextEdit)
-            if self.operation_type == "emu":
-                console_widget = getattr(self.main_window.widgets, f"console_{self.index}", None)
-                if console_widget:
-                    class QTextEditHandler(logging.Handler):
-                        def emit(self, record):
-                            msg = self.format(record)
-                            console_widget.append(msg)
+            # QTextEdit handler setup
+            console_widget = getattr(self.main_window.widgets, f"console_{self.index}", None)
+            if console_widget:
+                class QTextEditHandler(logging.Handler):
+                    def emit(self, record):
+                        msg = self.format(record)
+                        console_widget.append(msg)
 
-                    self.console_handler = QTextEditHandler()
-                    self.console_handler.setFormatter(file_formatter)
-                    logger.addHandler(self.console_handler)
-
-            # General scan console handler setup (for operation_type == "scan_general" with QPlainTextEdit)
-            if self.operation_type == "scan_general":
-                console_widget = getattr(self.main_window.widgets, "scan_general_console", None)
-                if console_widget:
-                    class GeneralScanHandler(logging.Handler):
-                        def __init__(self, thread):
-                            super().__init__()
-                            self.thread = thread
-
-                        def emit(self, record):
-                            msg = self.format(record)
-                            console_widget.appendPlainText(msg)
-
-                    self.console_handler = GeneralScanHandler(self)
-                    self.console_handler.setFormatter(file_formatter)
-                    logger.addHandler(self.console_handler)
+                self.console_handler = QTextEditHandler()
+                self.console_handler.setFormatter(file_formatter)
+                self.console_handler.setLevel(logging.DEBUG if get_debug_mode() else logging.ERROR)
+                logger.addHandler(self.console_handler)
 
         return logger
 
-    def log_message(self, message: str, level: str = "info", console: bool = True):
+    def log_message(self, message: str, level: str = "info", console: bool = True, force_console: bool = False):
         """
         Logs a message at the specified level and optionally to the console.
 
         :param message: The log message.
         :param level: Log level ("info", "debug", "warning", "error", "critical").
         :param console: Whether to log to the QTextEdit console.
+        :param force_console: Force the message to appear in instance console even when handler level is restrictive.
         """
+        if force_console:
+            console = True
+
         # Temporarily detach the console handler if console logging is disabled
         if not console and hasattr(self, 'console_handler'):
             self.logger.removeHandler(self.console_handler)
+
+        previous_console_level = None
+        if force_console and hasattr(self, 'console_handler'):
+            previous_console_level = self.console_handler.level
+            self.console_handler.setLevel(logging.INFO)
 
         # Dynamically get the log method based on the level
         log_method = getattr(self.logger, level.lower(), self.logger.info)
@@ -119,12 +109,19 @@ class EmulatorThread(QThread):
         if not console and hasattr(self, 'console_handler'):
             self.logger.addHandler(self.console_handler)
 
+        if previous_console_level is not None and hasattr(self, 'console_handler'):
+            self.console_handler.setLevel(previous_console_level)
+
 
     def validate_run(self):
         """
         Validates the emulator environment before running operations.
-        Checks device connection and screen resolution.
+        Checks expiry, device connection and screen resolution.
         """
+        # Check expiry date
+        if not self.validate_expiry():
+            return False
+
         # Check if the device is connected
         if not self.adb_manager.device:
             error_message = f"No device found on port {self.port}"
@@ -133,23 +130,82 @@ class EmulatorThread(QThread):
                 self.scan_general_console.emit(error_message)
                 self.scan_general_error.emit()
             elif self.index == 998:
-                pass
+                # For template operations, show error in dialog
+                self.error.emit(self.index, error_message)
             else:
                 self.error.emit(self.index, error_message)
             return False
 
         # Validate screen resolution
         resolution = self.adb_manager.get_screen_resolution()
+        if resolution is None:
+            self.adb_manager.connect_to_device()
+            resolution = self.adb_manager.get_screen_resolution()
+
+        if resolution is None:
+            error_message = f"Unable to read screen resolution from device on port {self.port}. Please ensure emulator is running and ADB is connected."
+            self.log_message(error_message, "error")
+            if self.adb_manager.last_resolution_debug:
+                self.log_message(f"Resolution diagnostics: {self.adb_manager.last_resolution_debug}", "error")
+            if self.index == 999:
+                self.scan_general_console.emit(error_message)
+                self.scan_general_error.emit()
+            elif self.index == 998:
+                # For template operations, show error in dialog
+                self.error.emit(self.index, error_message)
+            else:
+                self.error.emit(self.index, error_message)
+            return False
+
+        self.log_message(
+            f"Detected screen resolution on port {self.port}: {resolution[0]}x{resolution[1]}",
+            "info"
+        )
+
         # print(resolution)
         if resolution != (540, 960) and resolution != (960, 540):
-            error_message = f"Unsupported screen resolution: {resolution[0]}x{resolution[1]}. Expected: 540x960."
+            error_message = (
+                f"Unsupported screen resolution: {resolution[0]}x{resolution[1]}. "
+                f"Expected: 540x960 (or 960x540). "
+                f"Changing emulator window size on desktop does not change device resolution; set it in emulator display settings."
+            )
             self.logger.error(error_message)
             self.error.emit(self.index, error_message)
             return False
 
-        self.logger.info("Validation passed. Device is now connected.")
+        self.log_message("Validation passed. Device is now connected.", "info", force_console=True)
         return True
 
+    def validate_expiry(self):
+        """
+        Validates the bot's expiry date using an NTP server.
+        Returns True if valid, False if expired or unable to verify.
+        """
+        expiry_value = get_expire()
+        if not expiry_value:
+            return True
+
+        try:
+            # Query current time from NTP server
+            ntp_client = ntplib.NTPClient()
+            response = ntp_client.request('pool.ntp.org', version=3)
+            current_utc = datetime.utcfromtimestamp(response.tx_time)
+        except Exception as e:
+            self.logger.error(f"Error fetching time from NTP server: {e}")
+            return False  # Validation fails if unable to fetch time
+
+        # Compare current date with expiry date
+        try:
+            expiry_date = datetime.strptime(expiry_value, "%Y-%m-%d")
+        except ValueError:
+            self.logger.error(f"Invalid TASKEX_EXPIRE format: {expiry_value}. Expected YYYY-MM-DD.")
+            return False
+
+        if current_utc.date() > expiry_date.date():
+            self.logger.error(f"Bot expired on {expiry_date.date()}")
+            return False
+        # self.logger.info(f"Expiry check passed. Current date: {current_utc.date()}, Expiry date: {expiry_date.date()}.")
+        return True
 
     def run(self):
         """
@@ -160,11 +216,9 @@ class EmulatorThread(QThread):
                 self._running = False
                 return
 
-            # Load the game settings
-            self.game_settings = get_game_settings_controls(self.main_window, self.index)
-
             # Perform the operation based on the type
             if self.operation_type == "emu":
+                self.game_settings = get_game_settings_controls(self.main_window,self.index)
                 self.run_emulator_instance()
             elif self.operation_type == "scan_general":
                 start_scan_generals(self)
@@ -176,7 +230,9 @@ class EmulatorThread(QThread):
                 start_simulate_monster_click(self)
 
         except Exception as e:
-            self.log_message(f"Thread Run : {e}",level="error",console=False)
+            tb = traceback.format_exc()
+            self.log_message(f"Thread Run : {e}", level="error", console=False)
+            self.log_message(f"Thread Run Traceback:\n{tb}", level="error", force_console=True)
             self.error.emit(self.index, str(e))
         finally:
             self.finished.emit(self.index, self._running)
@@ -200,20 +256,16 @@ class EmulatorThread(QThread):
         Runs the emulator instance based on the mode.
         """
         run_join_rally(self)
-        # Clear the cache
-        self.cache['join_rally_controls']['cache']['skipped_monster_cords_img'] = []
 
     def capture_and_validate_screen(self,kick_timer=True, ads=True):
         try:
             src_img = self.adb_manager.take_screenshot()
             restart_img = cv2.imread("assets/540p/other/restart_btn.png")
             world_map_btn = cv2.imread("assets/540p/other/explore_world_map_btn.png")
-
-            if kick_timer and is_template_match(src_img, restart_img,threshold=0.9):
-                # print(f"kick timer activated {self.game_settings['kick_reload']}")
+            if kick_timer and is_template_match(src_img, restart_img):
+                # print("kick timer activated")
                 self.logger.info(f"Kick & Reload activated for {self.game_settings['kick_reload']} min(s)")
                 time.sleep(self.game_settings['kick_reload'] * 60)
-
                 # print("kick timer done")
                 self.logger.info("Kick timer done. Restart initiated")
                 # Restart the game
@@ -230,7 +282,6 @@ class EmulatorThread(QThread):
                     self.adb_manager.launch_evony(True)
                 start_time = time.time()
                 timeout = 60
-
                 while not is_template_match(src_img, world_map_btn):
                     # Wait a bit before the next screenshot to reduce CPU usage
                     time.sleep(1)
@@ -257,11 +308,8 @@ class EmulatorThread(QThread):
                             if not is_template_match(src_img, pair_image):
                                 continue
                         # print("Ads found")
-
-                        ads_match = template_match_coordinates(src_img, ads_img)
-                        if not ads_match:
-                            continue
                         self.logger.info("Closing the ads/pop-ups")
+                        ads_match = template_match_coordinates(src_img, ads_img)
                         self.adb_manager.tap(ads_match[0], ads_match[1])
                         time.sleep(1)
                         src_img = self.adb_manager.take_screenshot()

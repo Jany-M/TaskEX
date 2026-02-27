@@ -14,3 +14,4 @@ resources/resources_rc.py
 *.log
 convert.txt
 db/task_ex.db
+/TaskEnforcerX.egg-info

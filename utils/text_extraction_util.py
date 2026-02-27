@@ -1,10 +1,87 @@
 import re
+import os
 
 import cv2
 import numpy as np
-from pytesseract import pytesseract
 
 from utils.helper_utils import get_current_datetime_string, is_valid_timer_format
+
+# Try easyocr first, fall back to pytesseract if not available
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+    _reader = None  # Lazy load on first use
+except ImportError:
+    EASYOCR_AVAILABLE = False
+
+try:
+    from pytesseract import pytesseract
+    PYTESSERACT_AVAILABLE = True
+    from utils.image_recognition_utils import setup_tesseract
+    setup_tesseract()
+except:
+    PYTESSERACT_AVAILABLE = False
+
+
+def _get_easyocr_reader():
+    """Lazy load EasyOCR reader"""
+    global _reader
+    if _reader is None and EASYOCR_AVAILABLE:
+        _reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+    return _reader
+
+
+def _extract_with_easyocr(image) -> str:
+    """Extract text using EasyOCR"""
+    try:
+        reader = _get_easyocr_reader()
+        if reader is None:
+            return ""
+        
+        # Convert BGR to RGB for easyocr
+        if len(image.shape) == 3:
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        else:
+            image_rgb = image
+            
+        results = reader.readtext(image_rgb, detail=0)  # detail=0 returns just text
+        text = "\n".join(results)
+        
+        # Post-process: EasyOCR often confuses colons with periods in timer text
+        # Convert periods to colons for HH:MM:SS patterns
+        text = text.replace(".", ":")
+        
+        return text.strip()
+    except Exception:
+        return ""
+
+
+def _extract_with_pytesseract(image, config: str) -> str:
+    """Extract text using pytesseract (fallback)"""
+    try:
+        if not PYTESSERACT_AVAILABLE or not pytesseract.tesseract_cmd:
+            return ""
+        if not os.path.exists(pytesseract.tesseract_cmd):
+            return ""
+        return pytesseract.image_to_string(image, config=config, timeout=2).strip()
+    except Exception:
+        return ""
+
+
+def _safe_image_to_string(image, config: str = "") -> str:
+    """Try easyocr first, fall back to pytesseract"""
+    # Try easyocr first (pure Python, more reliable)
+    if EASYOCR_AVAILABLE:
+        text = _extract_with_easyocr(image)
+        if text:
+            return text
+    
+    # Fall back to pytesseract
+    if PYTESSERACT_AVAILABLE:
+        return _extract_with_pytesseract(image, config)
+    
+    return ""
+
 
 
 def filter_general_name(text):
@@ -27,39 +104,161 @@ def filter_general_name(text):
     return text
 
 def extract_remaining_rally_time_from_image(img):
-    thresh = cv2.threshold(img, 200, 255, cv2.THRESH_BINARY_INV)[1]
-    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\rt_og_{get_current_datetime_string()}.png", img)
-    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\rt_thresh{get_current_datetime_string()}.png", thresh)
-    # Configure Tesseract for numeric detection
-    custom_config = r'--oem 3 --psm 6 outputbase digits -c tessedit_char_whitelist=0123456789:'
-    extracted_text = pytesseract.image_to_string(thresh, config=custom_config).strip()
-    # print(f"Remaining march time::before {extracted_text}")
+    """
+    Extract timer in HH:MM:SS format from image.
+    Works with EasyOCR and multiple preprocessing variants for robustness.
+    """
+    # Try various preprocessing methods
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    thresh_inv = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)[1]
+    thresh_otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    white_mask = preprocess_white_text(img)
 
-    # Match 00:00:00 or 00:00 format
-    match = re.search(r'\b\d{2}:\d{2}:\d{2}\b', extracted_text) or re.search(r'\b\d{2}:\d{2}\b', extracted_text)
+    variants = [
+        img,           # Original
+        thresh_inv,    # Inverted threshold
+        thresh_otsu,   # OTSU threshold
+        white_mask,    # White text mask
+    ]
 
-    # print(f"Remaining march time::after {match.group(0) if match else None}")
-    return match.group(0) if match else None
+    candidates = []
+    
+    for variant_img in variants:
+        # Try original size
+        text = _safe_image_to_string(variant_img)
+        if text:
+            candidates.append(text)
+        
+        # Try 2x scaled version for small text
+        try:
+            scaled = cv2.resize(variant_img, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+            scaled_text = _safe_image_to_string(scaled)
+            if scaled_text:
+                candidates.append(scaled_text)
+        except Exception:
+            pass
+    
+    # Extract matching timer format from candidates
+    for text in candidates:
+        normalized = text.replace(" ", "").replace("\n", "").replace(".", ":")
 
+        # Look for HH:MM:SS format
+        match = re.search(r'\b\d{1,2}:\d{2}:\d{2}\b', normalized)
+        if match and is_valid_timer_format(match.group(0)):
+            return match.group(0)
+        
+        # Also check for MM:SS
+        match = re.search(r'\b\d{2}:\d{2}\b', normalized)
+        if match and is_valid_timer_format(match.group(0)):
+            return match.group(0)
+    
+    # Last resort - try white text extraction
+    fallback_text = extract_timer_white_text(img) or ""
+    if fallback_text:
+        match = re.search(r'\b(?:\d{1,2}:)?\d{2}:\d{2}\b', fallback_text)
+        if match and is_valid_timer_format(match.group(0)):
+            return match.group(0)
+    
+    return None
+
+
+def extract_remaining_rally_time_text(img):
+    """Return raw OCR text used for remaining rally time extraction."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)[1]
+    
+    primary_text = _safe_image_to_string(thresh)
+    fallback_text = extract_timer_white_text(img) or ""
+    
+    return f"primary='{primary_text}' fallback='{fallback_text}'"
 
 def extract_join_rally_time_from_image(img):
-    # Method 1: Grayscale with contrast enhancement and Otsu thresholding
     gray_full = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # Enhance contrast
-    alpha = 1.5  # Contrast control (1.0-3.0)
-    beta = 0     # Brightness control
-    contrasted = cv2.convertScaleAbs(gray_full, alpha=alpha, beta=beta)
+
+    # Method 1: Contrast enhancement + OTSU
+    contrasted = cv2.convertScaleAbs(gray_full, alpha=1.5, beta=0)
     _, binary = cv2.threshold(contrasted, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    extracted_text = pytesseract.image_to_string(binary, config="--psm 7 --oem 3").strip()
-    if is_valid_timer_format(extracted_text):
-        # print(f"Timer extracted (Method 1): {extracted_text}")
-        return extracted_text
-    # else:
-    #     print(f"Method 1 failed: Invalid timer format - {extracted_text}")
+    variants = [
+        binary,
+        gray_full,
+    ]
 
-    # print("No valid timer format detected with any method.")
+    for variant in variants:
+        extracted_text = _safe_image_to_string(variant, "--psm 7 --oem 3").strip()
+        if not extracted_text:
+            continue
+
+        normalized = extracted_text.replace(" ", "").replace("\n", "").replace(".", ":")
+
+        if is_valid_timer_format(normalized):
+            return normalized
+
+        match = re.search(r'\b\d{1,2}:\d{2}:\d{2}\b', normalized) or re.search(r'\b\d{2}:\d{2}\b', normalized)
+        if match and is_valid_timer_format(match.group(0)):
+            return match.group(0)
+
     return None
+
+def extract_monster_power_from_image(img):
+    monster_power_icon_img = cv2.imread("assets/540p/join_rally/monster_power_icon.png")
+
+    # Get image dimensions
+    height, width = img.shape[:2]
+
+    # Crop the top-right quadrant
+    x_start = width // 2  # Start from the middle horizontally
+    y_start = 0  # Start from the top
+    x_end = width  # End at full width
+    y_end = height // 2  # End at the middle vertically
+    top_right_img = img[y_start:y_end, x_start:x_end]  # Crop top-right quadrant
+
+    # Convert top-right image to grayscale for template matching
+    src_gray = cv2.cvtColor(top_right_img, cv2.COLOR_BGR2GRAY)
+    icon_gray = cv2.cvtColor(monster_power_icon_img, cv2.COLOR_BGR2GRAY)
+
+    # Perform template matching to find the power icon
+    result = cv2.matchTemplate(src_gray, icon_gray, cv2.TM_CCOEFF_NORMED)
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+    threshold = 0.8  # Match confidence threshold
+    if max_val < threshold:
+        return None
+
+    # Crop the power text based on the icon's position
+    match_x, match_y = max_loc  # Top-left coordinates of the match
+    icon_h, icon_w = icon_gray.shape[:2]
+
+    x1 = match_x + icon_w  # Start just after the icon
+    y1 = match_y  # Align with the icon
+    x2 = x1 + 150  # Approximate width for power text
+    y2 = y1 + icon_h  # Keep same height as icon
+
+    cropped_power_text = top_right_img[y1:y2, x1:x2]  # Crop the power text area
+
+    # Refine the cropped image (trim extra right-side parts)
+    hsv = cv2.cvtColor(cropped_power_text, cv2.COLOR_BGR2HSV)
+    lower_blue = np.array([90, 50, 50])
+    upper_blue = np.array([130, 255, 255])
+    mask = cv2.inRange(hsv, lower_blue, upper_blue)
+
+    cols = np.any(mask, axis=0)  # Find blue background columns
+    if np.any(cols):
+        x2 = np.max(np.where(cols))  # Get rightmost blue pixel
+    else:
+        x2 = cropped_power_text.shape[1]  # Default to full width if no blue detected
+
+    refined_cropped_power_text = cropped_power_text[:, :x2]  # Crop up to the detected blue area
+
+    #cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\crop_{get_current_datetime_string()}.png", refined_cropped_power_text)
+
+    # Extract text using OCR
+    gray = cv2.cvtColor(refined_cropped_power_text, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    extracted_text = _safe_image_to_string(binary)
+
+    return extracted_text
 
 def preprocess_white_text(img):
     """
@@ -78,12 +277,10 @@ def extract_timer_white_text(img):
 
     # OCR Configuration for numeric detection
     custom_config = r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789:'
-    extracted_text = pytesseract.image_to_string(processed_mask, config=custom_config).strip()
+    extracted_text = _safe_image_to_string(processed_mask, custom_config)
 
     # Clean unwanted characters and ensure valid format
     extracted_text = ''.join(filter(lambda x: x in '0123456789:', extracted_text))
-    # print(f"Ext Text march time: {extracted_text}")
-
     # If the extracted text is purely numeric, insert a colon (MM:SS format or H:MM:SS if needed)
     if extracted_text.isdigit():
         extracted_text = extracted_text.lstrip("0") or "0"  # Remove leading zeros but keep at least one digit
@@ -95,6 +292,6 @@ def extract_timer_white_text(img):
             extracted_text = f"{extracted_text[0]}:{extracted_text[1:3]}:{extracted_text[3:]}"
 
     match = re.search(r'\b(?:\d{1,2}:)?\d{2}:\d{2}\b', extracted_text)
-    # print(f"March time {match.group(0) if match else None}")
-
-    return match.group(0) if match else None
+    if match and is_valid_timer_format(match.group(0)):
+        return match.group(0)
+    return ""

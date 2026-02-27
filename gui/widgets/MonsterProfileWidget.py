@@ -1,8 +1,8 @@
 import os
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Signal, QSize
+from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtWidgets import QWidget, QPushButton
 
 from db.db_setup import get_session
 from db.models import BossMonster, MonsterLevel, MonsterImage
@@ -34,12 +34,12 @@ class MonsterProfileWidget(QWidget):
         elif not os.path.isfile(monster_preview):
             # Use the default preview image
             monster_preview = os.path.join(str(self.preview_path), "default_preview.png")
-
         pixmap = QPixmap(monster_preview)
-        # half_height = int(pixmap.height() / 2)
-        # print(half_height) #92
-        pixmap = pixmap.scaledToHeight(92)
-        self.ui.monster_icon_label.setPixmap(pixmap)
+        if pixmap.isNull():
+            self.ui.monster_icon_label.clear()
+        else:
+            pixmap = pixmap.scaledToHeight(92)
+            self.ui.monster_icon_label.setPixmap(pixmap)
 
         # Setup Monster Label
         self.ui.monster_name_label.setText(self.data.preview_name)
@@ -61,6 +61,15 @@ class MonsterProfileWidget(QWidget):
             self.ui.delete_monster_btn.setEnabled(False)
         self.ui.delete_monster_btn.clicked.connect(self.delete_monster_profile)
 
+        # Setup Monster Clone button (runtime, to avoid editing generated UI)
+        self.ui.clone_monster_btn = QPushButton(self.ui.frame_4)
+        self.ui.clone_monster_btn.setObjectName("clone_monster_btn")
+        self.ui.clone_monster_btn.setMinimumSize(QSize(30, 30))
+        self.ui.clone_monster_btn.setStyleSheet("border: none;")
+        self.ui.clone_monster_btn.setText("")
+        self.ui.clone_monster_btn.setIcon(QIcon.fromTheme(QIcon.ThemeIcon.EditCopy))
+        self.ui.verticalLayout_2.insertWidget(1, self.ui.clone_monster_btn)
+
         # Checkbox
         self.ui.checkBox.setVisible(False)
         self.ui.checkBox.setProperty("boss_id", self.data.id)
@@ -70,37 +79,35 @@ class MonsterProfileWidget(QWidget):
         """
         Remove the current monster profile widget from the layout and the UI.
         """
-        if show_confirmation_dialog(self, "confirm",
-                                    f"Are you sure you want to remove {self.ui.monster_name_label.text()}?"):
-            with get_session() as session:
-                # If it's present in the db
-                if self.data.id:
-                    try:
-                        # Remove the monster and its related data from the DB
-                        monster_to_delete = session.query(BossMonster).filter(
-                            BossMonster.id == self.data.id).one_or_none()
-                        if monster_to_delete:
-                            # Delete the related levels
-                            session.query(MonsterLevel).filter(
-                                MonsterLevel.boss_monster_id == monster_to_delete.id).delete()
+        if show_confirmation_dialog(self, "confirm", f"Are you sure you want to remove {self.ui.monster_name_label.text()}?"):
+            session = get_session()
+            # If it's present in the db
+            if self.data.id:
+                try:
+                    # Remove the monster and its related data from the DB
+                    monster_to_delete = session.query(BossMonster).filter(BossMonster.id == self.data.id).one_or_none()
+                    if monster_to_delete:
+                        # Delete the related levels
+                        session.query(MonsterLevel).filter(MonsterLevel.boss_monster_id == monster_to_delete.id).delete()
 
-                            # Delete the related images
-                            session.query(MonsterImage).filter(
-                                MonsterImage.id == monster_to_delete.monster_image_id).delete()
+                        # Delete the related images
+                        session.query(MonsterImage).filter(MonsterImage.id == monster_to_delete.monster_image_id).delete()
 
-                            # Finally, delete the boss monster itself
-                            session.delete(monster_to_delete)
+                        # Finally, delete the boss monster itself
+                        session.delete(monster_to_delete)
 
-                            # Commit the transaction to remove the monster from the database
-                            session.commit()
-                    except Exception as e:
-                        session.rollback()
-                        print(e)
+                        # Commit the transaction to remove the monster from the database
+                        session.commit()
+                except Exception as e:
+                    session.rollback()
+                    print(e)
+                finally:
+                    session.close()
 
-                # Remove it from the UI
-                if self.flow_layout:
-                    self.flow_layout.removeWidget(self)
-                    self.deleteLater()
+            # Remove it from the UI
+            if self.flow_layout:
+                self.flow_layout.removeWidget(self)
+                self.deleteLater()
 
-                # Emit the signal, passing the monster object (self.data) if the id is None
-                self.monster_deleted.emit(self.data)
+            # Emit the signal, passing the monster object (self.data) if the id is None
+            self.monster_deleted.emit(self.data)

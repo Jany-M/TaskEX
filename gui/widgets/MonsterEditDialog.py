@@ -1,5 +1,6 @@
 import os
 import tempfile
+import traceback
 from datetime import datetime
 
 import cv2
@@ -42,6 +43,8 @@ class MonsterEditDialog(QDialog, Ui_Monster_Edit_Dialog):
         # Set up scroll area for monster levels
         self.init_level_scroll_area()
 
+        # Ensure capture button is enabled (default in generated UI is disabled)
+        self.capture_image_btn.setEnabled(True)
 
         # Connect signals
         self.save_changes_btn.clicked.connect(self.save_changes_pressed)
@@ -114,6 +117,9 @@ class MonsterEditDialog(QDialog, Ui_Monster_Edit_Dialog):
         the selection tool inside the template_selection_frame.
         """
         try:
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[DEBUG] handle_frame_ready() called with image\n")
+            
             # Get the template_selection_frame
             template_frame = self.template_selection_frame
             if not template_frame:
@@ -130,22 +136,85 @@ class MonsterEditDialog(QDialog, Ui_Monster_Edit_Dialog):
                 item = template_layout.takeAt(0)
                 widget = item.widget()
                 if widget:
-                    # print(f"[DEBUG] Removing widget: {widget.objectName()} ({widget.__class__.__name__})")
+                    with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                        f.write(f"[DEBUG] Removing widget: {widget.objectName()}\n")
                     widget.deleteLater()
 
             # Create the selection tool with the captured image
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[DEBUG] Creating SelectionTool from captured image\n")
             self.selection_tool = SelectionTool(img, full_preview=False, parent=template_frame)
             self.selection_tool.setObjectName("selection_tool")
 
             # Add the selection tool directly to the template frame layout
             template_layout.addWidget(self.selection_tool)
-
-            # print("[DEBUG] Selection tool added to the template selection frame.")
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[DEBUG] Selection tool added to template_selection_frame - CAPTURE SUCCESS!\n")
 
         except Exception as e:
-            print(f"[ERROR] Error in handle_frame_ready: {e}")
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[ERROR] Error in handle_frame_ready: {e}\n")
+                import traceback
+                f.write(traceback.format_exc())
         finally:
             self.capture_image_btn.blockSignals(False)
+
+    def _log_capture_debug(self, message: str) -> None:
+        try:
+            with open("capture_debug.log", "a", encoding="utf-8", errors="replace") as f:
+                f.write(f"{message}\n")
+        except Exception:
+            pass
+
+    def _generate_preview_from_selection(self) -> None:
+        """Auto-generate preview image from the selected area if missing."""
+        if not self.selection_tool or not self.selection_tool.is_selection_made():
+            self._log_capture_debug("[WARN] preview auto-gen skipped: no selection")
+            return
+
+        if self.preview_image_line_edit.property("file_path"):
+            self._log_capture_debug("[INFO] preview auto-gen skipped: preview already set")
+            return
+
+        selected = self.selection_tool.selected_area
+        if not selected:
+            self._log_capture_debug("[WARN] preview auto-gen skipped: selected_area missing")
+            return
+
+        x, y, w, h = selected
+        qimg = self.selection_tool.q_image
+        if qimg is None or qimg.isNull():
+            self._log_capture_debug("[ERROR] preview auto-gen failed: q_image missing")
+            return
+
+        preview_name = self.preview_name_line_edit.text().strip() or "preview"
+        safe_name = preview_name.replace(" ", "_").lower()
+        if not safe_name.lower().endswith(".png"):
+            safe_name = f"{safe_name}.png"
+
+        temp_dir = tempfile.gettempdir()
+        preview_path = os.path.join(temp_dir, safe_name)
+
+        cropped = qimg.copy(x, y, w, h)
+        if cropped.isNull():
+            self._log_capture_debug("[ERROR] preview auto-gen failed: cropped image is null")
+            return
+
+        # Normalize preview size to 512x512 to match existing previews
+        cropped = cropped.scaled(512, 512, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+
+        if not cropped.save(preview_path):
+            self._log_capture_debug(f"[ERROR] preview auto-gen failed: save failed {preview_path}")
+            return
+
+        self._log_capture_debug(f"[INFO] preview auto-gen saved: {preview_path}")
+        self.preview_image_line_edit.setText(os.path.basename(preview_path))
+        self.preview_image_picker.load_file(preview_path)
+
+    def handle_capture_error(self, error_message):
+        """Handle errors from capture/template operations."""
+        QMessageBox.critical(self, "Capture Error", f"Failed to capture image:\n{error_message}")
+        self.capture_image_btn.blockSignals(False)
 
     def simulate_monster_click(self):
         # Check if the lock button is enabled
@@ -164,19 +233,44 @@ class MonsterEditDialog(QDialog, Ui_Monster_Edit_Dialog):
 
     def capture_template_ss(self):
         """Capture the template image through emulator."""
-        # Block the signal to avoid multiple press
-        self.capture_image_btn.blockSignals(True)
+        try:
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"\n=== CAPTURE STARTED ===\n")
+            
+            # Block the signal to avoid multiple press
+            self.capture_image_btn.blockSignals(True)
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[DEBUG] Signal blocked\n")
 
-        port = self.port_lineEdit.text().strip()
+            port = self.port_lineEdit.text().strip()
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[DEBUG] Port from lineEdit: '{port}'\n")
 
-        is_valid, error_message = self.validate_port(port)
+            is_valid, error_message = self.validate_port(port)
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[DEBUG] Port validation: is_valid={is_valid}, error='{error_message}'\n")
 
-        if not is_valid:
-            QMessageBox.critical(self, "Error", error_message)
-            return
+            if not is_valid:
+                with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                    f.write(f"[DEBUG] Port invalid, showing error dialog\n")
+                QMessageBox.critical(self, "Error", error_message)
+                self.capture_image_btn.blockSignals(False)
+                return
 
-        # Start the thread to capture the image
-        monster_template_scan(self, port, "capture_template_ss")
+            # Start the thread to capture the image
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[DEBUG] Starting monster_template_scan thread with port={port}...\n")
+            monster_template_scan(self, port, "capture_template_ss")
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[DEBUG] monster_template_scan thread started\n")
+                f.write(f"=== CAPTURE ENDED ===\n")
+                
+        except Exception as e:
+            with open("capture_debug.log", "a", encoding='utf-8', errors='replace') as f:
+                f.write(f"[ERROR] Exception in capture_template_ss: {e}\n")
+                import traceback
+                f.write(traceback.format_exc())
+            self.capture_image_btn.blockSignals(False)
 
     def validate_port(self,port):
 
@@ -208,6 +302,8 @@ class MonsterEditDialog(QDialog, Ui_Monster_Edit_Dialog):
             self.lock_btn.setIcon(QIcon(":/icons/images/icons/cil-lock-locked.png"))
             self.port_lineEdit.setReadOnly(True)  # Disable port input
             self.capture_image_btn.setEnabled(False)  # Disable capture button
+            self.find_template_btn.setEnabled(True)  # Enable find template button
+            self._generate_preview_from_selection()
         else:
             # Unlock the selection tool
             if self.selection_tool:
@@ -215,6 +311,7 @@ class MonsterEditDialog(QDialog, Ui_Monster_Edit_Dialog):
             self.lock_btn.setIcon(QIcon(":/icons/images/icons/cil-lock-unlocked.png"))
             self.port_lineEdit.setReadOnly(False)  # Enable port input
             self.capture_image_btn.setEnabled(True)  # Enable capture button
+            self.find_template_btn.setEnabled(False)  # Disable find template button
 
     def generate_template_image(self):
         if not self.lock_btn.isChecked():
@@ -225,26 +322,28 @@ class MonsterEditDialog(QDialog, Ui_Monster_Edit_Dialog):
 
     def populate_field_data(self):
         """Populate category and logic combo boxes, and load existing monster data if editing."""
-        with get_session() as session:
-            categories = session.query(MonsterCategory).all()
-            logics = session.query(MonsterLogic).all()
+        session = get_session()
+        categories = session.query(MonsterCategory).all()
+        logics = session.query(MonsterLogic).all()
 
-            # Populate category combo box
-            self.category_combo_box.clear()
-            for category in categories:
-                self.category_combo_box.addItem(category.name, category.id)
+        # Populate category combo box
+        self.category_combo_box.clear()
+        for category in categories:
+            self.category_combo_box.addItem(category.name, category.id)
 
-            # Populate logic combo box
-            self.logic_combo_box.clear()
-            for logic in logics:
-                self.logic_combo_box.addItem(logic.logic, logic.id)
+        # Populate logic combo box
+        self.logic_combo_box.clear()
+        for logic in logics:
+            self.logic_combo_box.addItem(logic.logic, logic.id)
 
-            # Load monster data if editing an existing one
-            if self.monster_id is not None:
-                monster_data = self.get_monster_data(session)
-                self.load_monster_data(monster_data)
-            elif self.monster_to_edit:
-                self.load_monster_data(self.monster_to_edit)
+        # Load monster data if editing an existing one
+        if self.monster_id is not None:
+            monster_data = self.get_monster_data(session)
+            self.load_monster_data(monster_data)
+        elif self.monster_to_edit:
+            self.load_monster_data(self.monster_to_edit)
+
+        session.close()
 
     def load_monster_data(self, monster_data):
         """Load the existing data for the selected boss monster."""
@@ -332,7 +431,7 @@ class MonsterEditDialog(QDialog, Ui_Monster_Edit_Dialog):
         self.click_y_spin_box.setEnabled(toggle)
         self.simulate_click_btn.setEnabled(toggle)
         self.port_lineEdit.setEnabled(toggle)
-        self.capture_image_btn.setEnabled(toggle)
+        # Note: capture_image_btn is NOT toggled here - it should always be available
         self.lock_btn.setEnabled(toggle)
 
     def clear_extra_levels(self):
@@ -455,69 +554,136 @@ class MonsterEditDialog(QDialog, Ui_Monster_Edit_Dialog):
             # QMessageBox.warning(self, "Validation Error", "Please fill in all required fields.")
             return
 
-        with get_session() as session:
-            # print(self.monster_to_edit)
-            if not self.monster_id and not self.monster_to_edit:
-                # print("New Monster")
-                # Create new monster
-                self.monster = BossMonster()
-                self.monster.monster_image = MonsterImage()
-            elif self.monster_to_edit:
-                # print("Edit New Monster")
-                self.monster = self.monster_to_edit
-            else:
-                # print("Edit Monster")
-                # Edit existing monster
-                self.monster = session.query(BossMonster).filter(BossMonster.id == self.monster_id).one()
-
-            # Store basic info
-            self.monster.preview_name = self.preview_name_line_edit.text()
-            self.monster.monster_category_id = self.category_combo_box.currentData()
-            self.monster.monster_logic_id = self.logic_combo_box.currentData()
-            self.monster.enable_map_scan = self.map_scan_checkbox.isChecked()
-
-            # Store image data
-            self.monster.monster_image.preview_image = self.preview_image_line_edit.text()
-            if self.monster.enable_map_scan:
-                self.monster.monster_image.img_540p = self.p540_image_line_edit.text()
-                self.monster.monster_image.img_threshold = self.threshold_spin_box.value()
-                self.monster.monster_image.click_pos = f"{self.click_x_spin_box.value()},{self.click_y_spin_box.value()}"
-            else:
-                self.monster.monster_image.img_540p = None
-                self.monster.monster_image.img_threshold = None
-                self.monster.monster_image.click_pos = None
-
-            # Store monster levels
-            self.update_monster_levels(session)
-
-            # Return the new monster object without saving
-            if not self.monster_id:
-                # Close the dialog
-                self.accept()
-                self.monster.preview_img_path = self.preview_image_line_edit.property("file_path")
-                self.monster.p540_img_path = self.p540_image_line_edit.property("file_path")
-                return self.monster
-            # Commit changes for existing monsters
+        def _log_capture_debug(message: str) -> None:
             try:
-                session.add(self.monster)
-                # Move the file to the preview folder if file picker is used:
-                file_path = self.preview_image_line_edit.property("file_path")
-                if file_path:
-                    copy_image_to_preview(file_path, self.monster.monster_image.preview_image)
-                # Move the file to the 540p template if file picker is used:
-                file_path = self.p540_image_line_edit.property("file_path")
-                if file_path:
-                    copy_image_to_template(file_path, self.monster.monster_image.img_540p)
+                with open("capture_debug.log", "a", encoding="utf-8", errors="replace") as f:
+                    f.write(f"{message}\n")
+            except Exception:
+                pass
 
-                # Commit changes in db
-                session.commit()
-                self.monster_updated.emit(self.monster_id)
-                QMessageBox.information(self, "Success", "Monster updated successfully!")
+        session = get_session()
+        # print(self.monster_to_edit)
+        if not self.monster_id and not self.monster_to_edit:
+            # print("New Monster")
+            # Create new monster
+            self.monster = BossMonster()
+            self.monster.monster_image = MonsterImage()
+        elif self.monster_to_edit:
+            # print("Edit New Monster")
+            self.monster = self.monster_to_edit
+        else:
+            # print("Edit Monster")
+            # Edit existing monster
+            self.monster = session.query(BossMonster).filter(BossMonster.id == self.monster_id).one()
+
+        # Store basic info
+        self.monster.preview_name = self.preview_name_line_edit.text()
+        self.monster.monster_category_id = self.category_combo_box.currentData()
+        self.monster.monster_logic_id = self.logic_combo_box.currentData()
+        self.monster.enable_map_scan = self.map_scan_checkbox.isChecked()
+
+        # Store image data
+        self.monster.monster_image.preview_image = self.preview_image_line_edit.text()
+        if self.monster.enable_map_scan:
+            self.monster.monster_image.img_540p = self.p540_image_line_edit.text()
+            self.monster.monster_image.img_threshold = self.threshold_spin_box.value()
+            self.monster.monster_image.click_pos = f"{self.click_x_spin_box.value()},{self.click_y_spin_box.value()}"
+        else:
+            self.monster.monster_image.img_540p = None
+            self.monster.monster_image.img_threshold = None
+            self.monster.monster_image.click_pos = None
+
+        # Store monster levels
+        self.update_monster_levels(session)
+
+        # Return the new monster object without saving
+        if not self.monster_id:
+            # Close  the dialog
+            self.accept()
+            self.monster.preview_img_path = self.preview_image_line_edit.property("file_path")
+            self.monster.p540_img_path = self.p540_image_line_edit.property("file_path")
+            return self.monster
+        # Commit changes for existing monsters
+        save_ok = False
+        save_step = "prepare"
+        preview_file_path = self.preview_image_line_edit.property("file_path")
+        template_file_path = self.p540_image_line_edit.property("file_path")
+        preview_image_name = self.preview_image_line_edit.text().strip()
+        template_image_name = self.p540_image_line_edit.text().strip()
+        enable_map_scan = self.map_scan_checkbox.isChecked()
+        _log_capture_debug(f"[DEBUG] save_changes: preview_path={preview_file_path}")
+        _log_capture_debug(f"[DEBUG] save_changes: template_path={template_file_path}")
+        _log_capture_debug(f"[DEBUG] save_changes: preview_name={preview_image_name}")
+        _log_capture_debug(f"[DEBUG] save_changes: template_name={template_image_name}")
+        _log_capture_debug(f"[DEBUG] save_changes: enable_map_scan={enable_map_scan}")
+        try:
+            save_step = "session_add"
+            session.add(self.monster)
+
+            # Commit changes in db
+            save_step = "db_commit"
+            session.commit()
+            save_ok = True
+        except Exception as e:
+            session.rollback()
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save the monster ({save_step}, {type(e).__name__}): {e}\n\n{traceback.format_exc()}"
+            )
+        finally:
+            session.close()
+
+        if save_ok:
+            # File operations are post-save best-effort and should not block data persistence.
+            try:
+                if preview_file_path and preview_image_name:
+                    preview_dest = os.path.abspath(os.path.join("assets", "preview", preview_image_name))
+                    preview_src = os.path.abspath(str(preview_file_path))
+                    _log_capture_debug(f"[DEBUG] preview_src={preview_src}")
+                    _log_capture_debug(f"[DEBUG] preview_dest={preview_dest}")
+
+                    replace_ok = True
+                    if os.path.exists(preview_dest) and os.path.normcase(os.path.normpath(preview_src)) != os.path.normcase(os.path.normpath(preview_dest)):
+                        reply = QMessageBox.question(
+                            self,
+                            "Replace Preview Image?",
+                            f"A preview image named '{preview_image_name}' already exists. Replace it?",
+                            QMessageBox.Yes | QMessageBox.No,
+                            QMessageBox.No
+                        )
+                        replace_ok = reply == QMessageBox.Yes
+                        _log_capture_debug(f"[DEBUG] preview replace decision={replace_ok}")
+
+                    if replace_ok:
+                        _log_capture_debug("[DEBUG] copy_image_to_preview: start")
+                        copy_image_to_preview(preview_file_path, preview_image_name)
+                        _log_capture_debug("[DEBUG] copy_image_to_preview: end")
+                    else:
+                        _log_capture_debug("[INFO] copy_image_to_preview: skipped by user")
             except Exception as e:
-                session.rollback()
-                QMessageBox.critical(self, "Error", f"Failed to save the monster: {e}")
-            finally:
-                self.accept()
+                _log_capture_debug(f"[ERROR] copy_image_to_preview exception: {e}")
+                QMessageBox.warning(self, "Saved with warning", f"Monster saved but preview image copy failed: {e}")
+
+            try:
+                if template_file_path and enable_map_scan and template_image_name:
+                    _log_capture_debug("[DEBUG] copy_image_to_template: start")
+                    copy_image_to_template(template_file_path, template_image_name)
+                    _log_capture_debug("[DEBUG] copy_image_to_template: end")
+            except Exception as e:
+                _log_capture_debug(f"[ERROR] copy_image_to_template exception: {e}")
+                QMessageBox.warning(self, "Saved with warning", f"Monster saved but template image copy failed: {e}")
+
+            try:
+                self.monster_updated.emit(self.monster_id)
+            except Exception as e:
+                QMessageBox.warning(
+                    self,
+                    "Saved with warning",
+                    f"Monster was saved, but UI refresh failed: {e}.\nPlease reopen the Monsters tab to refresh."
+                )
+            QMessageBox.information(self, "Success", "Monster updated successfully!")
+            self.accept()
 
     def update_monster_levels(self,session):
         """

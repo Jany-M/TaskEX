@@ -9,7 +9,19 @@ from pytesseract import pytesseract
 def setup_tesseract():
     # For Windows, you need to specify the path to the tesseract executable
     if os.name == 'nt':  # Check if the OS is Windows
-        pytesseract.tesseract_cmd = rf'Tesseract-OCR\tesseract.exe'
+        # Get the project root directory (parent of utils directory)
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        tesseract_dir = os.path.join(project_root, 'Tesseract-OCR')
+        tesseract_exe = os.path.join(tesseract_dir, 'tesseract.exe')
+        pytesseract.tesseract_cmd = tesseract_exe
+        
+        # Add tesseract directory to PATH so it can find its DLL dependencies
+        if tesseract_dir not in os.environ['PATH']:
+            os.environ['PATH'] = tesseract_dir + os.pathsep + os.environ['PATH']
+        
+        # Set TESSDATA_PREFIX so tesseract can find its training data
+        tessdata_path = os.path.join(tesseract_dir, 'tessdata')
+        os.environ['TESSDATA_PREFIX'] = tessdata_path
 
 
 def template_match_coordinates(src_image, template_image, return_center=True, convert_gray=True, threshold=0.85):
@@ -39,7 +51,6 @@ def template_match_coordinates(src_image, template_image, return_center=True, co
         return max_loc
     return None
 
-
 def template_match_coordinates_all(src_image, template_image, return_center=False, convert_gray=True, threshold=0.85,
                                    nms_distance=5):
     """
@@ -67,9 +78,9 @@ def template_match_coordinates_all(src_image, template_image, return_center=Fals
     h, w = template_image.shape[:2]
 
     # Collect all matches and their scores
-    for pt in zip(*loc[::-1]):  # Switch to x, y order
+    for pt in zip(*loc[::-1]):
         x, y = pt
-        score = result[y, x]  # Get the correlation score at this location
+        score = result[y, x]
         if return_center:
             center_x = x + w // 2
             center_y = y + h // 2
@@ -81,21 +92,15 @@ def template_match_coordinates_all(src_image, template_image, return_center=Fals
     if not matches:
         return []
 
-    # Combine matches and scores into a list of tuples: (x, y, score)
     matches_with_scores = [(match[0], match[1], score) for match, score in zip(matches, scores)]
-
-    # Sort by score (highest first) for non-maximum suppression
     matches_with_scores = sorted(matches_with_scores, key=lambda x: x[2], reverse=True)
 
-    # Apply non-maximum suppression
     filtered_matches = []
     while matches_with_scores:
-        # Take the match with the highest score
         best_match = matches_with_scores[0]
-        filtered_matches.append((best_match[0], best_match[1]))  # Keep only the (x, y) coordinates
+        filtered_matches.append((best_match[0], best_match[1]))
         matches_with_scores = matches_with_scores[1:]
 
-        # Filter out matches that are too close to the best match
         matches_to_keep = []
         for match in matches_with_scores:
             x1, y1 = best_match[0], best_match[1]
@@ -105,7 +110,6 @@ def template_match_coordinates_all(src_image, template_image, return_center=Fals
                 matches_to_keep.append(match)
         matches_with_scores = matches_to_keep
 
-    # Sort filtered matches by y-coordinate (top to bottom)
     filtered_matches = sorted(filtered_matches, key=lambda x: x[1])
 
     return filtered_matches
@@ -284,24 +288,18 @@ def crop_image(image: np.ndarray,selection_area) -> np.ndarray:
 
 
 def detect_red_color(image):
-    # Convert to HSV color space
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-    # Define HSV range for red (split into two ranges due to hue wrapping at 180)
     lower_red1 = np.array([0, 100, 100])
     upper_red1 = np.array([10, 255, 255])
     lower_red2 = np.array([170, 100, 100])
     upper_red2 = np.array([180, 255, 255])
 
-    # Create red mask
     mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
     mask_red2 = cv2.inRange(hsv, lower_red2, upper_red2)
     mask_red = cv2.bitwise_or(mask_red1, mask_red2)
 
-    # Count non-zero red pixels
     red_count = cv2.countNonZero(mask_red)
-
-    # Check if red text is present
     if red_count > 0:
         return True
 

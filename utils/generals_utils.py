@@ -1,5 +1,5 @@
 import os
-import time
+from pathlib import Path
 
 import cv2
 
@@ -9,10 +9,12 @@ from utils.image_recognition_utils import is_template_match, template_match_coor
 template_loc = os.path.join('assets', '540p', 'other')
 
 def select_general_view(thread,view):
+
     view_templates={
         "details view"  : f"{template_loc}\\details_view.png",
         "list view": f"{template_loc}\\list_view.png"
     }
+
     # Capture a screenshot
     src_img = thread.capture_and_validate_screen(ads=False)
 
@@ -21,7 +23,7 @@ def select_general_view(thread,view):
 
     # Check if the view is already selected or not
     if is_template_match(src_img,template_img,threshold=0.9):
-        # thread.logger.info(f"{view.capitalize()} is already selected.")
+        thread.main_window.scan_general_console.emit(f"{view.capitalize()} is already selected.")
         return True
 
     # Select the opposite view
@@ -39,8 +41,7 @@ def select_general_view(thread,view):
 
     if view_match:
         thread.adb_manager.tap(view_match[0], view_match[1])
-        thread.logger.info(f"Selecting {opposite_view}.")
-        time.sleep(0.5)
+        thread.main_window.scan_general_console.emit(f"Selecting {opposite_view}.")
         return True
     return False
 
@@ -62,11 +63,8 @@ def select_general_category(thread,category):
     template_img = cv2.imread(f"{category_templates[category]}_selected.png")
 
     # Check if the category is already selected or not
-    category_selected_match = template_match_coordinates(src_img,template_img)
-    if category_selected_match:
-        # Click on the match to remove the popup shown when the view is in list view
-        thread.adb_manager.tap(category_selected_match[0], category_selected_match[1])
-        # thread.logger.info(f"Category {category} is already selected.")
+    if is_template_match(src_img,template_img):
+        thread.main_window.scan_general_console.emit(f"Category {category} is already selected.")
         return True
 
     # Load the template image to select
@@ -77,12 +75,12 @@ def select_general_category(thread,category):
 
     if category_match:
         thread.adb_manager.tap(category_match[0],category_match[1])
-        thread.logger.info(f"Selecting {category.capitalize()} category.")
-        time.sleep(0.5)
+        thread.main_window.scan_general_console.emit(f"Selecting {category.capitalize()} category.")
         return True
     return False
 
-def apply_general_filter(thread,favorite=False, idle=False):
+def apply_general_filter(thread,favorite=False, idle=False,signal=None):
+
 
     # Define all the template images
     favorite_checked_img = cv2.imread(f"{template_loc}\\favorite_checked.png")
@@ -95,54 +93,58 @@ def apply_general_filter(thread,favorite=False, idle=False):
 
     if favorite:
         # Check if favorite is checked,if not check it
-        if is_template_match(src_img, favorite_checked_img,convert_gray=False):
-            # thread.logger.info("Favorite filter is already applied.")
+        if is_template_match(src_img, favorite_checked_img):
+            if signal:
+                signal.emit("Favorite filter is already applied.")
             # print("Favorite already selected")
-            pass
         else:
-            src_img_match = template_match_coordinates(src_img, favorite_unchecked_img,convert_gray=False)
+            src_img_match = template_match_coordinates(src_img, favorite_unchecked_img)
             if src_img_match:
-                thread.logger.info("Applying favorite filter now.")
+                if signal:
+                    signal.emit("Applying favorite filter now.")
                 # print("Selecting Favorite Filter")
                 # self.invokeScanGeneralsConsole("Applying the favorite filter")
                 thread.adb_manager.tap(src_img_match[0],src_img_match[1])
     else:
         # Check if favorite is unchecked,if not uncheck it
-        if is_template_match(src_img, favorite_unchecked_img,convert_gray=False):
-            # thread.logger.info("Favorite filter is not applied already.")
+        if is_template_match(src_img, favorite_unchecked_img):
+            if signal:
+                signal.emit("Favorite filter is not applied already.")
                 # print("Favorite already not selected")
-            pass
         else:
-            src_img_match = template_match_coordinates(src_img, favorite_checked_img,convert_gray=False)
+            src_img_match = template_match_coordinates(src_img, favorite_checked_img)
             if src_img_match:
                 # print("Clearing Favorite Filter")
-                thread.logger.info("Clearing the favorite filter.")
+                if signal:
+                    signal.emit("Clearing the favorite filter.")
                 thread.adb_manager.tap(src_img_match[0],src_img_match[1])
 
     if idle:
         # Check if idle is checked,if not check it
-        if is_template_match(src_img, idle_checked_img,convert_gray=False):
-            # thread.logger.info("Idle filter is already applied.")
+        if is_template_match(src_img, idle_checked_img):
+            if signal:
+                signal.emit("Idle filter is already applied.")
             # print("Idle already selected")
             # self.invokeScanGeneralsConsole("Idle filter is already applied")
-            pass
         else:
-            src_img_match = template_match_coordinates(src_img, idle_unchecked_img,convert_gray=False)
+            src_img_match = template_match_coordinates(src_img, idle_unchecked_img)
             if src_img_match:
-                thread.logger.info("Applying idle filter now.")
+                if signal:
+                    signal.emit("Applying idle filter now.")
                 # print("Selecting Idle Filter")
                 # self.invokeScanGeneralsConsole("Applying the idle filter")
                 thread.adb_manager.tap(src_img_match[0], src_img_match[1])
     else:
         # Check if idle is unchecked,if not uncheck it
-        if is_template_match(src_img, idle_unchecked_img,convert_gray=False):
-            # thread.logger.info("Idle filter is not applied already.")
+        if is_template_match(src_img, idle_unchecked_img):
+            if signal:
+                signal.emit("Idle filter is not applied already.")
             # print("Idle already not selected")
-            pass
         else:
-            src_img_match = template_match_coordinates(src_img, idle_checked_img,convert_gray=False)
+            src_img_match = template_match_coordinates(src_img, idle_checked_img)
             if src_img_match:
-                thread.logger.info("Clearing the idle filter.")
+                if signal:
+                    signal.emit("Clearing the idle filter.")
                 # print("Clearing Idle Filter")
                 thread.adb_manager.tap(src_img_match[0], src_img_match[1])
 
@@ -170,45 +172,3 @@ def crop_general_template_list_view(image):
     cropped_img = image[top:bottom, left:right]
 
     return cropped_img
-
-def extract_general_template_image(image,view=True):
-    """
-        Extracts a portion of the general image (e.g., head area) based on the view type.
-        view : True - > Details View, False - > List View
-    """
-    try:
-        # Get image dimensions
-        height, width = image.shape[:2]
-
-        # Define crop dimensions based on view type
-        if view:  # Details view
-            crop_width = 50  # Larger area for details view
-            crop_height = 50
-        else:  # List view
-            crop_width = 30  # Smaller area for list view
-            crop_height = 30
-
-        # Calculate the center x-coordinate
-        center_x = width // 2
-
-        # Calculate x-coordinates for cropping (middle portion)
-        x_start = max(0, center_x - (crop_width // 2))
-        x_end = min(width, x_start + crop_width)
-
-        # Adjust x_start if x_end hits the image boundary
-        if x_end == width:
-            x_start = width - crop_width
-
-        # Calculate y-coordinates (top portion)
-        y_start = 40  # Start from the top
-        y_end = min(height, y_start + crop_height)
-
-        # Crop the image
-        image = image[y_start:y_end, x_start:x_end]
-
-        return image
-
-    except Exception as e:
-        print(f"Error extracting image portion: {e}")
-        return None
-

@@ -196,15 +196,6 @@ class Ui_Monster_Edit_Dialog(object):
 
         self.gridLayout_2.addWidget(self.preview_image_line_edit, 0, 0, 1, 4)
 
-        self.find_template_btn = QPushButton(self.frame_10)
-        self.find_template_btn.setObjectName(u"find_template_btn")
-        self.find_template_btn.setEnabled(False)
-        self.find_template_btn.setMinimumSize(QSize(40, 40))
-        icon2 = QIcon(QIcon.fromTheme(QIcon.ThemeIcon.SystemSearch))
-        self.find_template_btn.setIcon(icon2)
-
-        self.gridLayout_2.addWidget(self.find_template_btn, 1, 4, 1, 1)
-
         self.browse_540p_btn = QPushButton(self.frame_10)
         self.browse_540p_btn.setObjectName(u"browse_540p_btn")
         self.browse_540p_btn.setEnabled(False)
@@ -275,6 +266,16 @@ class Ui_Monster_Edit_Dialog(object):
         self.lock_btn.setCheckable(True)
 
         self.horizontalLayout_8.addWidget(self.lock_btn)
+
+        self.find_template_btn = QPushButton(self.frame_5)
+        self.find_template_btn.setObjectName(u"find_template_btn")
+        self.find_template_btn.setEnabled(False)
+        self.find_template_btn.setMinimumSize(QSize(40, 40))
+        icon_search = QIcon(QIcon.fromTheme(QIcon.ThemeIcon.SystemSearch))
+        self.find_template_btn.setIcon(icon_search)
+        self.find_template_btn.setToolTip("Find Template - Generates template from selection")
+
+        self.horizontalLayout_8.addWidget(self.find_template_btn)
 
         self.horizontalLayout_8.setStretch(0, 2)
         self.horizontalLayout_8.setStretch(1, 3)

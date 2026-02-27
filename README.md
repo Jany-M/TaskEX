@@ -41,6 +41,54 @@ TaskEnforcerX is a Python-based bot designed to automate tasks in the mobile gam
   python main.py
   ```
 
+## Build for Windows (x64)
+
+TaskEnforcerX can be packaged as a Windows executable using the included PyInstaller build config (via `setup.py`).
+
+### Requirements
+
+- Windows 64-bit
+- Python 3.12 x64 (recommended to match runtime dependencies)
+- Virtual environment with project dependencies installed
+
+### Build Steps
+
+1: Open PowerShell in the project root.
+
+2: Activate your virtual environment:
+```
+.\.venv\Scripts\Activate.ps1
+```
+
+3: Install build dependency if needed:
+```
+pip install pyinstaller
+```
+
+4: Build the executable:
+```
+python setup.py build
+```
+
+### Output
+
+- The packaged app is generated under the `build/` folder.
+- For x64 Python, output is typically in `build/TaskEnforcerX/`.
+- Run the generated `.exe` from inside that output folder so bundled assets and tools are resolved correctly.
+
+### Notes
+
+- Keep required runtime folders/files available during build (already configured in setup): `assets/`, `platform-tools/`, `Tesseract-OCR/`, and `db/task_ex.db`.
+- If you specifically need x64 output, make sure your Python interpreter is x64 before building.
+
+## Expiry Configuration
+
+TaskEX supports an optional expiry check controlled by the `TASKEX_EXPIRE` environment variable.
+
+- If `TASKEX_EXPIRE` is empty or not set, expiry validation is disabled.
+- If set, it must use `YYYY-MM-DD` format (example: `2026-12-31`).
+- Guest login does not bypass or trigger expiry; expiry is a global runtime check when configured.
+
 ## Screenshots / Demo
 
 Here’s a preview of TaskEnforcerX in action:

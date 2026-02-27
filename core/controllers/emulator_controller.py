@@ -234,6 +234,9 @@ def monster_template_scan(dialog, port: str, operation: str):
     # Store the thread in the main window
     setattr(dialog.main_window.widgets, f'emulator_thread_{index}', emulator_thread)
 
+    # Connect error signal to dialog error handler
+    emulator_thread.error.connect(lambda idx, error: dialog.handle_capture_error(error))
+
     emulator_thread.start()
 
 def generate_template_image(dialog, port: str, operation: str):
@@ -243,6 +246,9 @@ def generate_template_image(dialog, port: str, operation: str):
 
     # Store the thread in the main window
     setattr(dialog.main_window.widgets, f'emulator_thread_{index}', emulator_thread)
+
+    # Connect error signal to dialog error handler
+    emulator_thread.error.connect(lambda idx, error: dialog.handle_capture_error(error))
 
     emulator_thread.start()
 
@@ -254,5 +260,8 @@ def start_simulate_monster_click(dialog,operation: str):
 
     # Store the thread in the main window
     setattr(dialog.main_window.widgets, f'emulator_thread_{index}', emulator_thread)
+
+    # Connect error signal to dialog error handler
+    emulator_thread.error.connect(lambda idx, error: dialog.handle_capture_error(error))
 
     emulator_thread.start()

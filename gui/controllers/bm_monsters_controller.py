@@ -1,4 +1,5 @@
 import os
+import re
 
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QCheckBox, QDialog, QWidget, QMessageBox
@@ -7,7 +8,7 @@ from core.custom_widgets.FlowLayout import FlowLayout
 from core.services.bm_monsters_service import export_selected_bosses, \
     get_all_boss_monster_data_for_bm
 from db.db_setup import get_session
-from db.models import BossMonster
+from db.models import BossMonster, MonsterImage, MonsterLevel
 from gui.widgets.MonsterEditDialog import MonsterEditDialog
 from gui.widgets.MonsterProfileWidget import MonsterProfileWidget
 from gui.widgets.MonsterUploadDialog import MonsterUploadDialog
@@ -39,28 +40,13 @@ def init_bm_monster_ui(main_window):
     # Set the flow layout to the container frame (monsters_list_frame)
     monsters_list_frame.setLayout(flow_layout)
 
-    # # Get all the bosses
-    # boss_monsters = get_all_boss_monster_data_for_bm()
-    #
-    # # Pass the data to add the widgets
-    # for boss in boss_monsters:
-    #     # print(boss.monster_logic_id)
-    #     add_monster_to_frame(main_window,boss)
-
-
-def populate_monsters_tab(main_window):
-    flow_layout = main_window.widgets.monsters_list_flow_layout
-
-    # Check if the layout is already populated to avoid reloading
-    if flow_layout.count() > 0:
-        return
-
     # Get all the bosses
     boss_monsters = get_all_boss_monster_data_for_bm()
 
     # Pass the data to add the widgets
     for boss in boss_monsters:
-        add_monster_to_frame(main_window, boss)
+        # print(boss.monster_logic_id)
+        add_monster_to_frame(main_window,boss)
 
 
 def add_monster_to_frame(main_window,boss):
@@ -71,10 +57,76 @@ def add_monster_to_frame(main_window,boss):
 
     # Setup Configure/Edit Monster
     widget.ui.configure_monster_btn.clicked.connect(lambda :configure_monster(main_window,widget.ui.checkBox.property("boss_id")))
+    widget.ui.clone_monster_btn.clicked.connect(lambda: clone_monster(main_window, widget.ui.checkBox.property("boss_id")))
 
     # Set the size of the widget to its size hint
     widget.setFixedSize(widget.sizeHint())
     flow_layout.addWidget(widget)
+
+
+def _generate_clone_name(session, source_name: str) -> str:
+    base_name = re.sub(r"\s+\d+\s+copy$", "", source_name, flags=re.IGNORECASE).strip()
+    if not base_name:
+        base_name = "Monster"
+
+    existing_names = {
+        name for (name,) in session.query(BossMonster.preview_name).all()
+    }
+
+    index = 2
+    candidate = f"{base_name} {index} copy"
+    while candidate in existing_names:
+        index += 1
+        candidate = f"{base_name} {index} copy"
+
+    return candidate
+
+
+def clone_monster(main_window, boss_id):
+    session = get_session()
+    try:
+        source = session.query(BossMonster).filter(BossMonster.id == boss_id).one_or_none()
+        if not source:
+            QMessageBox.warning(main_window, "Clone Failed", "Selected monster was not found.")
+            return
+
+        cloned_image = MonsterImage(
+            preview_image=source.monster_image.preview_image,
+            img_540p=source.monster_image.img_540p,
+            img_threshold=source.monster_image.img_threshold,
+            click_pos=source.monster_image.click_pos,
+        )
+        session.add(cloned_image)
+        session.flush()
+
+        cloned_boss = BossMonster(
+            preview_name=_generate_clone_name(session, source.preview_name),
+            monster_category_id=source.monster_category_id,
+            monster_image_id=cloned_image.id,
+            monster_logic_id=source.monster_logic_id,
+            enable_map_scan=source.enable_map_scan,
+            system=False,
+        )
+        session.add(cloned_boss)
+        session.flush()
+
+        for level in source.levels:
+            session.add(MonsterLevel(
+                boss_monster_id=cloned_boss.id,
+                level=level.level,
+                name=level.name,
+                power=level.power,
+            ))
+
+        session.commit()
+
+        cloned = session.query(BossMonster).filter(BossMonster.id == cloned_boss.id).one()
+        add_monster_to_frame(main_window, cloned)
+    except Exception as e:
+        session.rollback()
+        QMessageBox.critical(main_window, "Clone Failed", f"Failed to clone monster. Error: {str(e)}")
+    finally:
+        session.close()
 
 def configure_monster(main_window,boss_id):
     # Create an instance of the MonsterEditDialog and show it
@@ -95,31 +147,37 @@ def update_monster_profile_ui(main_window, boss_id):
     monster_profile_widget = main_window.findChild(QWidget, f"monster_profile_{boss_id}")
 
     if monster_profile_widget:
-        with get_session() as session:
-            # Fetch updated monster data (e.g., from the database or dialog)
-            updated_monster = session.query(BossMonster).filter(BossMonster.id == boss_id).one()
+        session = get_session()
+        # Fetch updated monster data (e.g., from the database or dialog)
+        updated_monster = session.query(BossMonster).filter(BossMonster.id == boss_id).one()
 
-            # Update the UI with the new data
-            preview_path = os.path.join('assets', 'preview')
+        # Update the UI with the new data
 
-            # Setup Monster Preview
-            monster_profile_widget.ui.monster_name_label.setText(updated_monster.preview_name)
-            monster_preview = os.path.join(str(preview_path), updated_monster.monster_image.preview_image)
-            if not os.path.isfile(monster_preview):
-                monster_preview = os.path.join(str(preview_path), "default_preview.png")
-            pixmap = QPixmap(monster_preview)
+        preview_path = os.path.join( 'assets', 'preview')
+
+        # Setup Monster Preview
+        monster_profile_widget.ui.monster_name_label.setText(updated_monster.preview_name)
+        monster_preview = os.path.join(str(preview_path), updated_monster.monster_image.preview_image)
+        if not os.path.isfile(monster_preview):
+            monster_preview = os.path.join(str(preview_path), "default_preview.png")
+        pixmap = QPixmap(monster_preview)
+        if pixmap.isNull():
+            monster_profile_widget.ui.monster_icon_label.clear()
+        else:
             pixmap = pixmap.scaledToHeight(92)
             monster_profile_widget.ui.monster_icon_label.setPixmap(pixmap)
 
-            # Update the frame
-            # Get the corresponding color for the logic ID
-            logic_color = logic_colors.get(updated_monster.monster_logic_id, '#000000')  # Default to black if not found
+        # Update the frame
+        # Get the corresponding color for the logic ID
+        logic_color = logic_colors.get(updated_monster.monster_logic_id, '#000000')  # Default to black if not found
 
-            # Setup the Monster Bottom Frame Color
-            monster_profile_widget.ui.bottom_color_frame.setStyleSheet(f"""
-                        background-color: rgb(29, 33, 38);
-                        border-bottom: 2px solid {logic_color};
-                    """)
+        # Setup the Monster Bottom Frame Color
+        monster_profile_widget.ui.bottom_color_frame.setStyleSheet(f"""
+                    background-color: rgb(29, 33, 38);
+                    border-bottom: 2px solid {logic_color};
+                """)
+
+        session.close()
 
 def open_upload_dialog(main_window):
     # Create an instance of the dialog class
