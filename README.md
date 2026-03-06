@@ -119,14 +119,6 @@ pyside6-uic gui/ui_files/splash_screen.ui -o gui/generated/splash_screen.py
 pyside6-rcc resources/resources.qrc -o resources/resources_rc.py
 ```
 
-## Expiry Configuration
-
-TaskEX supports an optional expiry check controlled by the `TASKEX_EXPIRE` environment variable.
-
-- If `TASKEX_EXPIRE` is empty or not set, expiry validation is disabled.
-- If set, it must use `YYYY-MM-DD` format (example: `2026-12-31`).
-- Expiry is a global runtime check when configured.
-
 ## Screenshots / Demo
 
 Here’s a preview of TaskEnforcerX in action:
@@ -148,6 +140,7 @@ This means:
 
 📜 You can read the full license details [here](https://github.com/evsahal/TaskEX/blob/master/LICENSE).
 
-## Support
+
+## Contribution
 
 If you find TaskEnforcerX helpful and would like to support its development, consider contributing!

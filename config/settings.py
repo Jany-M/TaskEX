@@ -57,12 +57,6 @@ VERSION = "v0.0.1"
 CREDITS = "By: MwoNuZzz & TheAnt"
 DEBUG_MODE = _str_to_bool(os.getenv("TASKEX_DEBUG", "0"))
 STRICT_MONSTER_MATCH = _str_to_bool(os.getenv("TASKEX_STRICT_MONSTER_MATCH", "0"))
-# Private variable (not directly accessible)
-__EXPIRE = os.getenv("TASKEX_EXPIRE", "")  # YYYY-MM-DD format; empty disables expiry check
-
-# Public getter to access the expiry date
-def get_expire():
-    return __EXPIRE
 
 
 def get_debug_mode():

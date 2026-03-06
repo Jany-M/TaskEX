@@ -1,14 +1,12 @@
 import time
-from datetime import datetime
 import os
 import traceback
 
 import cv2
-import ntplib
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
-from config.settings import get_expire, get_debug_mode
+from config.settings import get_debug_mode
 from core.services.bm_monsters_service import start_simulate_monster_click, \
     generate_template_image, capture_template_ss
 from core.services.bm_scan_generals_service import start_scan_generals
@@ -118,12 +116,8 @@ class EmulatorThread(QThread):
     def validate_run(self):
         """
         Validates the emulator environment before running operations.
-        Checks expiry, device connection and screen resolution.
+        Checks device connection and screen resolution.
         """
-        # Check expiry date
-        if not self.validate_expiry():
-            return False
-
         # Check if the device is connected
         if not self.adb_manager.device:
             error_message = f"No device found on port {self.port}"
@@ -176,37 +170,6 @@ class EmulatorThread(QThread):
             return False
 
         self.log_message("Validation passed. Device is now connected.", "info", force_console=True)
-        return True
-
-    def validate_expiry(self):
-        """
-        Validates the bot's expiry date using an NTP server.
-        Returns True if valid, False if expired or unable to verify.
-        """
-        expiry_value = get_expire()
-        if not expiry_value:
-            return True
-
-        try:
-            # Query current time from NTP server
-            ntp_client = ntplib.NTPClient()
-            response = ntp_client.request('pool.ntp.org', version=3)
-            current_utc = datetime.utcfromtimestamp(response.tx_time)
-        except Exception as e:
-            self.logger.error(f"Error fetching time from NTP server: {e}")
-            return False  # Validation fails if unable to fetch time
-
-        # Compare current date with expiry date
-        try:
-            expiry_date = datetime.strptime(expiry_value, "%Y-%m-%d")
-        except ValueError:
-            self.logger.error(f"Invalid TASKEX_EXPIRE format: {expiry_value}. Expected YYYY-MM-DD.")
-            return False
-
-        if current_utc.date() > expiry_date.date():
-            self.logger.error(f"Bot expired on {expiry_date.date()}")
-            return False
-        # self.logger.info(f"Expiry check passed. Current date: {current_utc.date()}, Expiry date: {expiry_date.date()}.")
         return True
 
     def run(self):
