@@ -1,3 +1,5 @@
+import logging
+
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QMainWindow, QScrollArea, QFrame
 
@@ -175,6 +177,15 @@ class MainWindow(QMainWindow):
         self.widgets.stackedWidget.setCurrentWidget(self.widgets.home)
         self.widgets.btn_home.setStyleSheet(UIFunctions.selectMenu(self.widgets.btn_home.styleSheet()))
 
+        # Ensure sidebars are open by default at startup.
+        self.widgets.leftMenuBg.setMinimumWidth(Settings.MENU_WIDTH)
+        self.widgets.leftMenuBg.setMaximumWidth(Settings.MENU_WIDTH)
+        self.widgets.extraLeftBox.setMinimumWidth(Settings.LEFT_BOX_WIDTH)
+        self.widgets.extraLeftBox.setMaximumWidth(Settings.LEFT_BOX_WIDTH)
+        self.widgets.toggleLeftBox.setStyleSheet(
+            self.widgets.toggleLeftBox.styleSheet() + Settings.BTN_LEFT_BOX_COLOR
+        )
+
         # Setup Pytesseract
         setup_tesseract()
 
@@ -182,7 +193,12 @@ class MainWindow(QMainWindow):
     def load_step(self, splash_screen, message, function, index):
         splash_screen.ui.progressBar.setValue(index)
         splash_screen.ui.label_loading.setText(message)
-        function()  # Execute the initialization function
+        try:
+            function()  # Execute the initialization function
+        except Exception:
+            logging.getLogger("taskex_boot").exception("Initialization step failed: %s", message)
+            splash_screen.ui.label_loading.setText(f"Initialization failed: {message}")
+            raise
 
         if index == splash_screen.ui.progressBar.maximum():
             splash_screen.close()

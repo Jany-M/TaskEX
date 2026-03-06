@@ -70,10 +70,16 @@ pip install pyinstaller
 python setup.py build
 ```
 
+Optional: build a debug executable (with console + debug splash controls):
+```
+python setup.py build-debug
+```
+
 ### Output
 
 - The packaged app is generated under the `build/` folder.
-- For x64 Python, output is typically in `build/TaskEnforcerX/`.
+- Release build output: `build/TaskEnforcerX/`.
+- Debug build output: `build/TaskEnforcerX-Debug/`.
 - Run the generated `.exe` from inside that output folder so bundled assets and tools are resolved correctly.
 
 ### Notes

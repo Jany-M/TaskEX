@@ -22,7 +22,7 @@ def _clean_previous_builds(build_path: Path):
         shutil.rmtree(build_path, ignore_errors=True)
 
 
-def _run_pyinstaller_build():
+def _run_pyinstaller_build(debug_console: bool = False):
     _ensure_pyinstaller_available()
 
     from PyInstaller.__main__ import run as pyinstaller_run
@@ -32,11 +32,12 @@ def _run_pyinstaller_build():
 
     _clean_previous_builds(temp_work)
 
+    build_name = f"{APP_NAME}-Debug" if debug_console else APP_NAME
+
     args = [
         "--noconfirm",
         "--clean",
-        "--windowed",
-        f"--name={APP_NAME}",
+        f"--name={build_name}",
         f"--distpath={build_root}",
         f"--workpath={temp_work}",
         f"--specpath={build_root}",
@@ -49,17 +50,30 @@ def _run_pyinstaller_build():
         str(ROOT / "main.py"),
     ]
 
+    if debug_console:
+        args.insert(2, "--console")
+        args.append(f"--runtime-hook={ROOT / 'debug' / 'pyi_runtime_debug.py'}")
+    else:
+        args.insert(2, "--windowed")
+
     pyinstaller_run(args)
+    return build_name
 
 
 if __name__ == "__main__":
     command = sys.argv[1].lower() if len(sys.argv) > 1 else ""
 
     if command == "build":
-        _run_pyinstaller_build()
+        build_name = _run_pyinstaller_build(debug_console=False)
         print("\nBuild completed. Output folder:")
-        print(f"{ROOT / 'build' / APP_NAME}")
+        print(f"{ROOT / 'build' / build_name}")
         sys.exit(0)
 
-    print("Usage: python setup.py build")
+    if command == "build-debug":
+        build_name = _run_pyinstaller_build(debug_console=True)
+        print("\nBuild completed. Output folder:")
+        print(f"{ROOT / 'build' / build_name}")
+        sys.exit(0)
+
+    print("Usage: python setup.py build | python setup.py build-debug")
     sys.exit(1)

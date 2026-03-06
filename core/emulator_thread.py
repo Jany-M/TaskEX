@@ -55,7 +55,9 @@ class EmulatorThread(QThread):
         # Ensure handlers are not duplicated
         if not logger.handlers:
             # File handler setup
-            log_file_path = f"logs.log"
+            logs_dir = "logs"
+            os.makedirs(logs_dir, exist_ok=True)
+            log_file_path = os.path.join(logs_dir, "logs.log")
             if not os.path.exists(log_file_path):
                 with open(log_file_path, "w") as f:
                     pass  # Create an empty log file
@@ -310,13 +312,20 @@ class EmulatorThread(QThread):
                         # print("Ads found")
                         self.logger.info("Closing the ads/pop-ups")
                         ads_match = template_match_coordinates(src_img, ads_img)
+                        if not ads_match:
+                            self.logger.debug(f"Ad close template x{i} matched but tap coordinates were not found.")
+                            continue
+
                         self.adb_manager.tap(ads_match[0], ads_match[1])
                         time.sleep(1)
                         src_img = self.adb_manager.take_screenshot()
                         break
             return src_img
         except Exception as e:
-            print(e)
+            try:
+                self.logger.warning(f"capture_and_validate_screen error: {e}")
+            except Exception:
+                pass
             return None
 
 

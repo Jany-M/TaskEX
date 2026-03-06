@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from time import sleep
 
@@ -810,6 +811,9 @@ def save_profile_controls(main_window, index):
 
     # Save it to the db
     profile_id = getattr(main_window.widgets,f'profile_combobox_{index}').currentData() # Get the profile id
+    if profile_id is None:
+        return
+
     session = get_session()
     try:
         # Check if there's already a ProfileData entry for this profile
@@ -825,7 +829,13 @@ def save_profile_controls(main_window, index):
         # Commit changes
         session.commit()
     except Exception as e:
-        print(e)
+        session.rollback()
+        logging.getLogger("taskex_boot").warning(
+            "Failed to save profile controls for instance %s (profile_id=%s): %s",
+            index,
+            profile_id,
+            e
+        )
     finally:
         session.close()
 

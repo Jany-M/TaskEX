@@ -278,17 +278,23 @@ class UIFunctions():
         screen_width = screen_size.width()
         screen_height = screen_size.height()
 
-        # Calculate minimum window size as a percentage of the screen size
-        min_width = int(screen_width * 0.9)  # 50% of the screen width
-        min_height = int(screen_height * 0.95)  # 50% of the screen height
-        # print(min_width,min_height)
+        # Startup and minimum window size tuned for better desktop usability.
+        startup_width = int(screen_width * 0.68)
+        startup_height = int(screen_height * 0.78)
+        min_width = int(screen_width * 0.55)
+        min_height = int(screen_height * 0.60)
 
         # Set the minimum size for the main window
         self.setMinimumSize(min_width, min_height)
 
+        # Apply a smaller startup size (bounded by minimum size).
+        target_width = max(min_width, startup_width)
+        target_height = max(min_height, startup_height)
+        self.resize(target_width, target_height)
+
         # Calculate the center position
-        center_x = int((screen_width - min_width) / 2)
-        center_y = int((screen_height - min_height) / 2)
+        center_x = int((screen_width - target_width) / 2)
+        center_y = int((screen_height - target_height) / 2)
 
         # Move the window to the center of the screen
         self.move(center_x, center_y)

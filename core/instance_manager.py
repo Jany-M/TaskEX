@@ -227,14 +227,20 @@ def is_emulator_port_available(port: int) -> bool:
                 text=True,
                 timeout=2
             )
-            if "connected to" in adb_result.stdout.lower():
+            stdout = (adb_result.stdout or "").lower()
+            stderr = (adb_result.stderr or "").lower()
+
+            if "connected to" in stdout or "already connected" in stdout:
                 return True  # Valid emulator instance
-            else:
+            if "cannot connect" in stdout or "cannot connect" in stderr:
                 return False
-        except:
+
+            # Unknown ADB response: treat as not verified
+            return False
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
             # If ADB check fails, still return True if socket is open (emulator responding)
             return True
 
-    except Exception as e:
+    except OSError:
         # Silent fail - return False if anything goes wrong
         return False

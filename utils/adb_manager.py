@@ -1,6 +1,9 @@
 import os
+import shutil
 import subprocess
 import re
+import sys
+from pathlib import Path
 from typing import Optional
 
 import adbutils
@@ -9,11 +12,40 @@ import numpy as np
 
 
 class ADBManager:
+    _adb_executable_cache: Optional[str] = None
+
     def __init__(self, port: str):
         self.device = None
         self.port = port
         self.last_resolution_debug = ""
         self.connect_to_device()
+
+    @classmethod
+    def _resolve_adb_executable(cls) -> str:
+        if cls._adb_executable_cache:
+            return cls._adb_executable_cache
+
+        executable_name = "adb.exe" if os.name == "nt" else "adb"
+        candidates: list[Path] = []
+
+        if getattr(sys, "frozen", False):
+            candidates.append(Path(sys.executable).resolve().parent / "platform-tools" / executable_name)
+
+        project_root = Path(__file__).resolve().parent.parent
+        candidates.append(project_root / "platform-tools" / executable_name)
+
+        for candidate in candidates:
+            if candidate.exists():
+                cls._adb_executable_cache = str(candidate)
+                return cls._adb_executable_cache
+
+        found = shutil.which("adb")
+        cls._adb_executable_cache = found if found else "adb"
+        return cls._adb_executable_cache
+
+    @classmethod
+    def _adb_command(cls, *args: str) -> list[str]:
+        return [cls._resolve_adb_executable(), *args]
 
     @staticmethod
     def _parse_wm_size_output(output: str) -> Optional[tuple[int, int]]:
@@ -36,17 +68,19 @@ class ADBManager:
         Initialize the ADB environment: set the ADB path and start the ADB server.
         This function should be called when starting the bot.
         """
-        ADB_PATH: str = os.path.join('platform-tools')
-        # print(f"ADB Path: {ADB_PATH}")
-        os.environ["PATH"] += os.pathsep + ADB_PATH
+        adb_executable = ADBManager._resolve_adb_executable()
+        adb_dir = os.path.dirname(adb_executable)
+
+        if adb_dir and adb_dir not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = adb_dir + os.pathsep + os.environ.get("PATH", "")
 
         try:
             # print("Starting ADB server...")
-            subprocess.run(["adb", "start-server"], check=True)
+            subprocess.run(ADBManager._adb_command("start-server"), check=True)
             # print("ADB server started.")
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
             # print(f"Failed to start ADB server: {e}")
-            exit(1)
+            raise RuntimeError(f"Failed to initialize ADB using '{adb_executable}': {e}") from e
 
     def connect_to_device(self) -> None:
         """
@@ -57,7 +91,7 @@ class ADBManager:
 
         try:
             # print(f"Connecting to emulator on port {self.port}...")
-            result = subprocess.run(["adb", "connect", ip_address], capture_output=True, text=True)
+            result = subprocess.run(self._adb_command("connect", ip_address), capture_output=True, text=True)
 
             if result.returncode != 0:
                 raise subprocess.CalledProcessError(result.returncode, result.args, output=result.stdout,
@@ -82,7 +116,7 @@ class ADBManager:
         if self.device:
             ip_address = f"127.0.0.1:{self.port}"
             try:
-                subprocess.run(["adb", "disconnect", ip_address], check=True)
+                subprocess.run(self._adb_command("disconnect", ip_address), check=True)
                 self.device = None
                 # print(f"Disconnected device on port {self.port}.")
             except subprocess.CalledProcessError as e:
@@ -118,20 +152,27 @@ class ADBManager:
         if self.device:
             output = self.device.shell("screencap -p", encoding=None)
 
+            if not output:
+                return None
+
             # Convert the raw screenshot bytes into a NumPy array
             screenshot_np = np.frombuffer(output, dtype=np.uint8)
 
+            if screenshot_np.size == 0:
+                return None
+
             # Decode the NumPy array into an image using OpenCV
-            screenshot_img = cv2.imdecode(screenshot_np, cv2.IMREAD_COLOR)
+            try:
+                screenshot_img = cv2.imdecode(screenshot_np, cv2.IMREAD_COLOR)
+            except cv2.error:
+                return None
 
             if screenshot_img is None:
-                print("Error: Failed to decode the screenshot.")
                 return None
 
             # Return the decoded screenshot image as a NumPy array
             return screenshot_img
         else:
-            print("Device not connected or found.")
             return None
 
     def press_back(self) -> None:
@@ -196,7 +237,7 @@ class ADBManager:
 
         try:
             process = subprocess.run(
-                ["adb", "-s", serial, "shell", "wm", "size"],
+                self._adb_command("-s", serial, "shell", "wm", "size"),
                 capture_output=True,
                 text=True
             )
@@ -213,7 +254,7 @@ class ADBManager:
                     return parsed
 
             state_process = subprocess.run(
-                ["adb", "-s", serial, "get-state"],
+                self._adb_command("-s", serial, "get-state"),
                 capture_output=True,
                 text=True
             )
@@ -222,7 +263,7 @@ class ADBManager:
             )
 
             devices_process = subprocess.run(
-                ["adb", "devices"],
+                self._adb_command("devices"),
                 capture_output=True,
                 text=True
             )

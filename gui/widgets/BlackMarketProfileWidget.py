@@ -2,6 +2,7 @@ import os
 import shutil
 from hashlib import md5
 
+from sqlalchemy import func
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QIcon
 from PySide6.QtWidgets import QWidget, QPushButton, QFrame, QFileDialog, QMessageBox
@@ -114,61 +115,85 @@ class BlackMarketProfileWidget(QWidget):
 
     def save_profile(self):
         """Save or update the black market profile."""
+        item_name = self.ui.name_lineEdit.text().strip()
+        purchase_rss = self.ui.rss_btn.isChecked()
+        purchase_gems = self.ui.gems_btn.isChecked()
+        purchase_gold = self.ui.gold_btn.isChecked()
 
-        # TODO Validate before saving
+        if not item_name:
+            QMessageBox.warning(self, "Validation Error", "Item name is required.")
+            return
+
+        if not any([purchase_rss, purchase_gems, purchase_gold]):
+            QMessageBox.warning(self, "Validation Error", "Select at least one purchase type (Resources, Gems, or Gold).")
+            return
+
+        if not self.templates:
+            QMessageBox.warning(self, "Validation Error", "Add at least one template image before saving.")
+            return
 
         session = get_session()
+        try:
+            duplicate_query = session.query(BlackMarket).filter(
+                func.lower(BlackMarket.item_name) == item_name.lower()
+            )
+            if self.data and self.data.id:
+                duplicate_query = duplicate_query.filter(BlackMarket.id != self.data.id)
+            if duplicate_query.first() is not None:
+                QMessageBox.warning(self, "Validation Error", f"A Black Market profile named '{item_name}' already exists.")
+                return
 
-        # Fetch existing profile or create new one
-        if self.data:
-            blackmarket = session.merge(self.data)  # Reattach to session
-        else:
-            blackmarket = BlackMarket()
+            # Fetch existing profile or create new one
+            if self.data:
+                blackmarket = session.merge(self.data)  # Reattach to session
+            else:
+                blackmarket = BlackMarket()
 
-        blackmarket.item_name = self.ui.name_lineEdit.text()
-        blackmarket.purchase_rss = self.ui.rss_btn.isChecked()
-        blackmarket.purchase_gems = self.ui.gems_btn.isChecked()
-        blackmarket.purchase_gold = self.ui.gold_btn.isChecked()
+            blackmarket.item_name = item_name
+            blackmarket.purchase_rss = purchase_rss
+            blackmarket.purchase_gems = purchase_gems
+            blackmarket.purchase_gold = purchase_gold
 
-        session.add(blackmarket)
-        session.commit()
+            session.add(blackmarket)
+            session.flush()
 
-        # Handle new or modified templates
-        for template in self.templates:
-            file_path = template["file_path"]
-            filename = os.path.basename(file_path)
-            dest_path = os.path.join(ASSETS_PATH, filename)
+            # Handle new or modified templates
+            for template in self.templates:
+                file_path = template["file_path"]
+                filename = os.path.basename(file_path)
+                dest_path = os.path.join(ASSETS_PATH, filename)
 
-            if not self.is_same_file(file_path, dest_path):
-                shutil.copy(file_path, dest_path)
+                if not self.is_same_file(file_path, dest_path):
+                    shutil.copy(file_path, dest_path)
 
-            if not any(item.item_image == filename for item in blackmarket.items):
-                new_item = BlackMarketItem(blackmarket_id=blackmarket.id, item_image=filename)
-                session.add(new_item)
+                if not any(item.item_image == filename for item in blackmarket.items):
+                    new_item = BlackMarketItem(blackmarket_id=blackmarket.id, item_image=filename)
+                    session.add(new_item)
 
-        # Handle removed templates
-        for removed_file in self.removed_templates:
-            filename = os.path.basename(removed_file)
-            item = session.query(BlackMarketItem).filter_by(
-                blackmarket_id=blackmarket.id, item_image=filename).one_or_none()
-            if item:
-                session.delete(item)
+            # Handle removed templates
+            for removed_file in self.removed_templates:
+                filename = os.path.basename(removed_file)
+                item = session.query(BlackMarketItem).filter_by(
+                    blackmarket_id=blackmarket.id, item_image=filename).one_or_none()
+                if item:
+                    session.delete(item)
 
-            file_path = os.path.join(ASSETS_PATH, filename)
-            if os.path.exists(file_path):
-                os.remove(file_path)
+                file_path = os.path.join(ASSETS_PATH, filename)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
 
-        # Add a new empty profile only if it’s a new profile
-        if not self.data:
-            self.add_new_empty_profile()
+            # Add a new empty profile only if it’s a new profile
+            if not self.data:
+                self.add_new_empty_profile()
+                self.data = blackmarket
 
-        # Now update self.data with the saved profile instance
-        if not self.data:
-            self.data = blackmarket  # Assign the saved instance to self.data
-
-        session.commit()
-        session.close()
-
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            QMessageBox.critical(self, "Save Failed", f"Unable to save profile: {e}")
+            return
+        finally:
+            session.close()
 
         QMessageBox.information(self, "Saved", "Black market profile saved successfully!")
 

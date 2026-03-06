@@ -1,6 +1,7 @@
 
 import time
 import os
+import re
 import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import timedelta
@@ -9,8 +10,7 @@ import cv2
 import numpy as np
 from pytesseract import pytesseract
 from config.settings import get_strict_monster_match, get_debug_mode
-from features.utils.join_rally_helper_utils import crop_middle_portion, crop_image_fixed_height, crop_boss_text_area, \
-    extract_monster_name_from_image, lookup_boss_by_name
+from features.utils.join_rally_helper_utils import extract_monster_name_from_image, lookup_boss_by_name
 from utils.get_controls_info import get_join_rally_controls
 from utils.helper_utils import parse_timer_to_timedelta, get_current_datetime_string
 from utils.image_recognition_utils import is_template_match, draw_template_match, template_match_coordinates_all, \
@@ -20,12 +20,119 @@ from utils.text_extraction_util import extract_remaining_rally_time_from_image, 
     extract_monster_power_from_image, extract_remaining_rally_time_text
 
 
+AREA_PROFILES = {
+    "join_war_button_fallback": (0.43, 0.88, 0.60, 0.98),
+    "monster_text_ocr": (0.60, 0.15, 0.95, 0.29),
+    "monster_text_ocr_fallback": (0.56, 0.13, 0.97, 0.33),
+    "remaining_time_ocr_primary": (0.44, 0.12, 0.98, 0.40),
+    "remaining_time_ocr_fallback": (0.34, 0.08, 0.99, 0.46),
+    "march_confirm_search": (0.58, 0.84, 0.98, 0.985),
+    "march_confirm_fallback": (0.72, 0.90, 0.96, 0.98),
+    "stamina_prompt_text_ocr": (0.12, 0.24, 0.88, 0.72),
+    "stamina_prompt_confirm_search": (0.48, 0.54, 0.95, 0.90),
+    "stamina_use_button_search": (0.20, 0.78, 0.80, 0.98),
+    "stamina_option_min": (0.22, 0.47, 0.38, 0.58),
+    "stamina_option_max": (0.62, 0.47, 0.78, 0.58),
+    "stamina_item_use_button_search": (0.62, 0.30, 0.98, 0.97),
+    "stamina_item_use_min_fallback": (0.70, 0.40, 0.93, 0.50),
+    "stamina_item_use_max_fallback": (0.70, 0.85, 0.93, 0.95),
+}
+
+
+def _profile_bounds(screen, profile_name):
+    h, w = screen.shape[:2]
+    left_r, top_r, right_r, bottom_r = AREA_PROFILES[profile_name]
+    x1 = max(0, min(w - 1, int(w * left_r)))
+    y1 = max(0, min(h - 1, int(h * top_r)))
+    x2 = max(x1 + 1, min(w, int(w * right_r)))
+    y2 = max(y1 + 1, min(h, int(h * bottom_r)))
+    return x1, y1, x2, y2
+
+
+def _crop_profile(screen, profile_name):
+    if screen is None or screen.size == 0:
+        return None
+    x1, y1, x2, y2 = _profile_bounds(screen, profile_name)
+    roi = screen[y1:y2, x1:x2]
+    if roi is None or roi.size == 0:
+        return None
+    return roi
+
+
+def _profile_center(screen, profile_name):
+    x1, y1, x2, y2 = _profile_bounds(screen, profile_name)
+    return (x1 + x2) // 2, (y1 + y2) // 2
+
+
+def _save_debug_frame(thread, label, frame=None):
+    if not get_debug_mode():
+        return
+
+    try:
+        debug_frame = frame
+        if debug_frame is None:
+            debug_frame = thread.capture_and_validate_screen(ads=False)
+
+        if debug_frame is None or debug_frame.size == 0:
+            return
+
+        os.makedirs("temp", exist_ok=True)
+        safe_label = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in str(label))
+        file_path = os.path.join("temp", f"jr_{safe_label}_{get_current_datetime_string()}.png")
+        cv2.imwrite(file_path, debug_frame)
+    except Exception:
+        pass
+
+
+def _default_join_rally_controls():
+    return {
+        "data": [],
+        "settings": {
+            "join_oldest_rallies_first": False,
+            "selected_presets": {"presets": {}},
+            "auto_use_stamina": {"enabled": False, "option": None},
+            "march_speed_boost": {"enabled": False, "option": None},
+        },
+        "cache": {
+            "skipped_monster_cords_img": [],
+            "previous_preset_number": None,
+        },
+    }
+
+
+def _ensure_join_rally_controls(thread):
+    controls = thread.cache.get('join_rally_controls')
+    if not isinstance(controls, dict):
+        controls = _default_join_rally_controls()
+
+    try:
+        latest_controls = get_join_rally_controls(thread.main_window, thread.index)
+        if isinstance(latest_controls, dict):
+            controls.update({k: v for k, v in latest_controls.items() if v is not None})
+    except Exception as e:
+        thread.log_message(
+            f"Failed to read join rally controls, using safe defaults: {e}",
+            "warning",
+            force_console=True
+        )
+
+    controls.setdefault('settings', {})
+    controls['settings'].setdefault('join_oldest_rallies_first', False)
+    controls['settings'].setdefault('selected_presets', {"presets": {}})
+    controls['settings'].setdefault('auto_use_stamina', {"enabled": False, "option": None})
+    controls['settings'].setdefault('march_speed_boost', {"enabled": False, "option": None})
+    controls.setdefault('data', [])
+    controls.setdefault('cache', {})
+    controls['cache'].setdefault('skipped_monster_cords_img', [])
+    controls['cache'].setdefault('previous_preset_number', None)
+
+    thread.cache['join_rally_controls'] = controls
+    return controls
+
+
 def run_join_rally(thread):
-    # Get the controls and store it in the thread cache
-    if 'join_rally_controls' not in thread.cache:
-        thread.cache['join_rally_controls'] = get_join_rally_controls(thread.main_window, thread.index)
-    # print(thread.cache['join_rally_controls']['settings']['join_oldest_rallies_first'])
-    join_oldest_rallies_first = thread.cache['join_rally_controls']['settings']['join_oldest_rallies_first']
+    controls = _ensure_join_rally_controls(thread)
+    join_oldest_rallies_first = controls.get('settings', {}).get('join_oldest_rallies_first', False)
     # Set the rally joining position based on the oldest rallies checkbox value
     scroll_through_rallies(thread,join_oldest_rallies_first,5,True)
     # Switch the swipe direction after setting up the join_oldest_rallies_first option
@@ -34,8 +141,8 @@ def run_join_rally(thread):
     swipe_iteration  = 0
     max_swipe_iteration  = 0
     # Initialize runtime cache for rally scanning and preset rotation
-    thread.cache['join_rally_controls'].setdefault('cache', {}).setdefault('skipped_monster_cords_img', [])
-    thread.cache['join_rally_controls']['cache'].setdefault('previous_preset_number', None)
+    controls.setdefault('cache', {}).setdefault('skipped_monster_cords_img', [])
+    controls['cache'].setdefault('previous_preset_number', None)
 
     while thread.thread_status():
         try:
@@ -62,7 +169,7 @@ def run_join_rally(thread):
             # Reset navigation after reaching max iteration
             if max_swipe_iteration >= 20:
                 # Clear skipped cords images
-                thread.cache['join_rally_controls']['cache']['skipped_monster_cords_img'] = []
+                _ensure_join_rally_controls(thread).setdefault('cache', {})['skipped_monster_cords_img'] = []
                 # Press back
                 thread.adb_manager.press_back()
                 time.sleep(1)
@@ -85,6 +192,10 @@ def process_monster_rallies(thread,scan_direction):
     for cords in rally_cords:
         # Recapture the  screen
         src_img = thread.capture_and_validate_screen(ads=False)
+        if src_img is None:
+            thread.log_message("Rally list capture failed; skipping current scan pass.", "warning", force_console=True)
+            return
+        _save_debug_frame(thread, "rally_list_scan", src_img)
         thread.log_message(f"Rally scan count: {len(rally_cords)} :: {cords}", "debug", console=False)
         x1, y1, x2, y2 = cords
         roi_src = src_img[y1:y2, x1:x2]
@@ -95,6 +206,9 @@ def process_monster_rallies(thread,scan_direction):
         thread.log_message(f"Opening rally at cords: {cords}", "info", force_console=True)
         thread.adb_manager.tap(x1, y2)
         time.sleep(1)
+
+        rally_detail_screen = thread.capture_and_validate_screen(ads=False)
+        _save_debug_frame(thread, "rally_detail_opened", rally_detail_screen)
 
         # Scan rally details
         rally_info = scan_rally_info(thread,roi_src)
@@ -111,6 +225,14 @@ def process_monster_rallies(thread,scan_direction):
         join_alliance_war_btn_match = None
         for attempt in range(2):
             rally_detail_img = thread.capture_and_validate_screen(ads=False)
+            if rally_detail_img is None:
+                thread.log_message(
+                    f"Join button search skipped on attempt {attempt + 1}: rally detail capture failed.",
+                    "debug",
+                    console=False
+                )
+                continue
+            _save_debug_frame(thread, f"join_btn_search_attempt_{attempt + 1}", rally_detail_img)
             join_alliance_war_btn_match = template_match_coordinates(rally_detail_img, join_alliance_war_btn_img)
             if not join_alliance_war_btn_match:
                 join_alliance_war_btn_match = template_match_coordinates(rally_detail_img, fallback_join_btn_img)
@@ -124,27 +246,18 @@ def process_monster_rallies(thread,scan_direction):
             time.sleep(0.4)
 
         if not join_alliance_war_btn_match:
-            if rally_detail_img is not None:
-                fallback_x = int(rally_detail_img.shape[1] * 0.50)
-                fallback_y = int(rally_detail_img.shape[0] * 0.93)
-                join_alliance_war_btn_match = (fallback_x, fallback_y)
-                thread.log_message(
-                    f"Join template not found; using centered fallback at {join_alliance_war_btn_match}.",
-                    "warning",
-                    force_console=True
-                )
-            else:
-                thread.log_message(
-                    "Join Alliance War button not found in rally detail screen. Skipping this rally.",
-                    "warning",
-                    force_console=True
-                )
-                thread.adb_manager.press_back()
-                time.sleep(1)
-                continue
+            thread.log_message(
+                "Join button not found (likely rally already started). Skipping this rally.",
+                "warning",
+                force_console=True
+            )
+            thread.adb_manager.press_back()
+            time.sleep(1)
+            continue
         
         thread.log_message("Tapping join button...", "debug", force_console=False)
         thread.adb_manager.tap(*join_alliance_war_btn_match)
+        _save_debug_frame(thread, "join_button_tapped")
         
         # Wait for march selection dialog to appear
         time.sleep(1.5)
@@ -165,7 +278,8 @@ def add_rally_cord_to_skip_list(thread, src_img):
     if src_img is None or src_img.size == 0:
         return
 
-    cache = thread.cache['join_rally_controls']['cache'].setdefault('skipped_monster_cords_img', [])
+    controls = _ensure_join_rally_controls(thread)
+    cache = controls['cache'].setdefault('skipped_monster_cords_img', [])
     cache.append(src_img.copy())
 
     if len(cache) > 30:
@@ -189,6 +303,7 @@ def handle_march_selection_dialog(thread, rally_info):
 
         # Capture screen and save for reference
         march_dialog_screen = thread.capture_and_validate_screen(ads=False)
+        _save_debug_frame(thread, "march_dialog_screen", march_dialog_screen)
         if debug_mode and march_dialog_screen is not None:
             timestamp = get_current_datetime_string()
             march_screen_path = os.path.join("temp", f"march_dialog_{timestamp}.png")
@@ -255,6 +370,7 @@ def handle_march_selection_dialog(thread, rally_info):
                     thread.log_message(f"Could not save button crop: {e}", "debug", force_console=False)
             
             thread.adb_manager.tap(*march_confirm_btn)
+            _save_debug_frame(thread, "march_confirm_tapped")
             thread.log_message("Waiting for march result...", "debug", force_console=False)
             time.sleep(1.2)
 
@@ -324,6 +440,7 @@ def handle_stamina_prompt_and_recover(thread):
     """
     try:
         screen = thread.capture_and_validate_screen(ads=False)
+        _save_debug_frame(thread, "post_march_result", screen)
         if screen is None:
             return None
 
@@ -358,6 +475,7 @@ def handle_stamina_prompt_and_recover(thread):
             return False
 
         thread.adb_manager.tap(*confirm_btn)
+        _save_debug_frame(thread, "stamina_prompt_confirm_tapped")
         time.sleep(1.1)
 
         if not handle_stamina_screen(thread, stamina_option):
@@ -373,12 +491,9 @@ def handle_stamina_prompt_and_recover(thread):
 def is_stamina_prompt_visible(screen):
     """Detect stamina modal by OCRing the center dialog area for stamina-specific words."""
     try:
-        h, w = screen.shape[:2]
-        x1 = int(w * 0.12)
-        x2 = int(w * 0.88)
-        y1 = int(h * 0.24)
-        y2 = int(h * 0.72)
-        roi = screen[y1:y2, x1:x2]
+        roi = _crop_profile(screen, "stamina_prompt_text_ocr")
+        if roi is None:
+            return False
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (3, 3), 0)
@@ -402,11 +517,7 @@ def is_stamina_prompt_visible(screen):
 
 def find_stamina_prompt_confirm_button(screen):
     """Find the right-side green confirm button in stamina prompt dialog."""
-    h, w = screen.shape[:2]
-    roi_x1 = int(w * 0.48)
-    roi_x2 = int(w * 0.95)
-    roi_y1 = int(h * 0.54)
-    roi_y2 = int(h * 0.90)
+    roi_x1, roi_y1, roi_x2, roi_y2 = _profile_bounds(screen, "stamina_prompt_confirm_search")
 
     if roi_x2 <= roi_x1 or roi_y2 <= roi_y1:
         return None
@@ -451,11 +562,7 @@ def find_stamina_prompt_confirm_button(screen):
 
 def find_stamina_screen_use_button(screen):
     """Find the bottom-center green button on stamina use screen."""
-    h, w = screen.shape[:2]
-    roi_x1 = int(w * 0.20)
-    roi_x2 = int(w * 0.80)
-    roi_y1 = int(h * 0.78)
-    roi_y2 = int(h * 0.98)
+    roi_x1, roi_y1, roi_x2, roi_y2 = _profile_bounds(screen, "stamina_use_button_search")
 
     if roi_x2 <= roi_x1 or roi_y2 <= roi_y1:
         return None
@@ -498,50 +605,122 @@ def find_stamina_screen_use_button(screen):
     return center_x, center_y
 
 
-def handle_stamina_screen(thread, stamina_option):
-    """Tap stamina option (Min/Max), use it, then return to rally window."""
+def find_stamina_item_use_button(screen, stamina_option):
+    """Find a stamina item row 'Use(...)' button on the right side of the Use Item list."""
+    roi_x1, roi_y1, roi_x2, roi_y2 = _profile_bounds(screen, "stamina_item_use_button_search")
+
+    if roi_x2 <= roi_x1 or roi_y2 <= roi_y1:
+        return None
+
+    roi = screen[roi_y1:roi_y2, roi_x1:roi_x2]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+    lower_green = np.array([35, 55, 40], dtype=np.uint8)
+    upper_green = np.array([95, 255, 255], dtype=np.uint8)
+    mask_green = cv2.inRange(hsv, lower_green, upper_green)
+
+    kernel = np.ones((5, 5), np.uint8)
+    mask_green = cv2.morphologyEx(mask_green, cv2.MORPH_CLOSE, kernel)
+    mask_green = cv2.morphologyEx(mask_green, cv2.MORPH_OPEN, kernel)
+
+    contours, _ = cv2.findContours(mask_green, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    candidates = []
+    for contour in contours:
+        x, y, bw, bh = cv2.boundingRect(contour)
+        area = bw * bh
+        if area < 1500 or bh <= 0:
+            continue
+
+        aspect_ratio = bw / float(bh)
+        if aspect_ratio < 1.5:
+            continue
+
+        center_x = roi_x1 + x + (bw // 2)
+        center_y = roi_y1 + y + (bh // 2)
+        candidates.append((center_x, center_y, area))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[1])
+    option_normalized = (stamina_option or "").lower()
+    selected = candidates[-1] if "max" in option_normalized else candidates[0]
+    return selected[0], selected[1]
+
+
+def is_stamina_item_screen(screen):
+    """Detect Use Item list screen by OCRing top region text."""
     try:
-        screen = thread.capture_and_validate_screen(ads=False)
         if screen is None:
             return False
 
         h, w = screen.shape[:2]
-        option_normalized = (stamina_option or "").lower()
-        if "max" in option_normalized:
-            option_x = int(w * 0.70)
-        else:
-            option_x = int(w * 0.30)
-        option_y = int(h * 0.52)
-
-        thread.log_message(
-            f"Selecting stamina option '{stamina_option}' at ({option_x}, {option_y}).",
-            "info",
-            force_console=True
-        )
-        thread.adb_manager.tap(option_x, option_y)
-        time.sleep(0.5)
-
-        use_screen = thread.capture_and_validate_screen(ads=False)
-        if use_screen is None:
+        x1, y1, x2, y2 = int(w * 0.15), int(h * 0.02), int(w * 0.85), int(h * 0.22)
+        roi = screen[y1:y2, x1:x2]
+        if roi is None or roi.size == 0:
             return False
 
-        use_btn = find_stamina_screen_use_button(use_screen)
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        text = pytesseract.image_to_string(thresh, config='--oem 3 --psm 6')
+        normalized = " ".join((text or "").lower().split())
+
+        return "use item" in normalized or "select an item" in normalized
+    except Exception:
+        return False
+
+
+def handle_stamina_screen(thread, stamina_option):
+    """Tap stamina option (Min/Max), use it, then return to rally window."""
+    try:
+        screen = thread.capture_and_validate_screen(ads=False)
+        _save_debug_frame(thread, "stamina_screen_opened", screen)
+        if screen is None:
+            return False
+
+        use_btn = find_stamina_item_use_button(screen, stamina_option)
         if use_btn:
-            thread.log_message(f"Tapping stamina use button at {use_btn}", "info", force_console=True)
-            thread.adb_manager.tap(*use_btn)
-        else:
-            fallback_use = (int(w * 0.50), int(h * 0.92))
             thread.log_message(
-                f"Could not detect stamina use button, tapping fallback at {fallback_use}.",
+                f"Tapping stamina list use button for '{stamina_option}' at {use_btn}",
+                "info",
+                force_console=True
+            )
+            thread.adb_manager.tap(*use_btn)
+            _save_debug_frame(thread, "stamina_use_tapped")
+        else:
+            option_normalized = (stamina_option or "").lower()
+            fallback_profile = "stamina_item_use_max_fallback" if "max" in option_normalized else "stamina_item_use_min_fallback"
+            fallback_use = _profile_center(screen, fallback_profile)
+            thread.log_message(
+                f"Could not detect stamina list use button, tapping fallback at {fallback_use}.",
                 "warning",
                 force_console=True
             )
             thread.adb_manager.tap(*fallback_use)
+            _save_debug_frame(thread, "stamina_use_fallback_tapped")
 
         time.sleep(1.2)
 
-        thread.adb_manager.press_back()
-        time.sleep(0.8)
+        post_use_screen = thread.capture_and_validate_screen(ads=False)
+        _save_debug_frame(thread, "stamina_post_use_screen", post_use_screen)
+
+        if post_use_screen is not None and is_stamina_prompt_visible(post_use_screen):
+            confirm_btn = find_stamina_prompt_confirm_button(post_use_screen)
+            if confirm_btn:
+                thread.log_message(f"Confirming stamina prompt at {confirm_btn}", "info", force_console=True)
+                thread.adb_manager.tap(*confirm_btn)
+                _save_debug_frame(thread, "stamina_prompt_confirm_after_use")
+                time.sleep(0.8)
+            else:
+                thread.log_message("Stamina prompt visible after item use, but confirm button not found.", "warning", force_console=True)
+
+        if post_use_screen is not None and is_stamina_item_screen(post_use_screen):
+            thread.log_message("Still on Use Item screen after item tap, pressing back.", "debug", force_console=False)
+            thread.adb_manager.press_back()
+            time.sleep(0.8)
+
         return navigate_join_rally_window(thread)
     except Exception as e:
         thread.log_message(f"Error handling stamina screen: {e}", "warning", force_console=True)
@@ -564,10 +743,7 @@ def find_march_confirm_button(thread):
         
         thread.log_message(f"Screen dimensions: {screen_width}x{screen_height}", "debug", force_console=False)
 
-        roi_x1 = int(screen_width * 0.58)
-        roi_x2 = int(screen_width * 0.98)
-        roi_y1 = int(screen_height * 0.84)
-        roi_y2 = int(screen_height * 0.985)
+        roi_x1, roi_y1, roi_x2, roi_y2 = _profile_bounds(screen, "march_confirm_search")
 
         if roi_x2 > roi_x1 and roi_y2 > roi_y1:
             roi = screen[roi_y1:roi_y2, roi_x1:roi_x2]
@@ -618,10 +794,9 @@ def find_march_confirm_button(thread):
         # We need the RIGHT button (March button)
         
         button_candidates = [
-            (int(screen_width * 0.82), int(screen_height * 0.94)),   # RIGHT button - March (445, 905)
-            (int(screen_width * 0.5), int(screen_height * 0.88)),    # CENTER - Reset (270, 844) - WRONG!
-            (int(screen_width * 0.8), int(screen_height * 0.90)),    # Right side alternative
-            (int(screen_width * 0.75), int(screen_height * 0.94)),   # Right side, lower
+            _profile_center(screen, "march_confirm_fallback"),
+            (int(screen_width * 0.80), int(screen_height * 0.90)),
+            (int(screen_width * 0.76), int(screen_height * 0.94)),
         ]
         
         thread.log_message(f"March button candidates: {button_candidates}", "debug", force_console=False)
@@ -648,6 +823,7 @@ def scan_rally_info(thread,roi_src):
     # Capture the current screen
     thread.log_message("Scan rally info: capture screen", "info", force_console=True)
     src_img = thread.capture_and_validate_screen(ads=False)
+    _save_debug_frame(thread, "scan_rally_info_source", src_img)
     thread.log_message("Scan rally info: screen captured", "info", force_console=True)
 
     # Make sure the rally is in progress
@@ -727,21 +903,35 @@ def scan_rally_info(thread,roi_src):
 
     # Verify if the boss is in the selected join list
     if not verify_monster_join(thread,extracted_boss_data):
-        thread.log_message("Rally detail rejected: monster not in join list.", "warning", force_console=True)
-        return False
+        if strict_monster_match:
+            thread.log_message("Rally detail rejected: monster not in join list.", "warning", force_console=True)
+            return False
+        thread.log_message(
+            "Monster not in selected join list, but strict mode is disabled. Proceeding with default march preset flow.",
+            "warning",
+            force_console=True
+        )
+        return True
 
     return True
 
 def read_monster_data(thread,src_img):
     # monster_power_icon_img = cv2.imread("assets/540p/join_rally/monster_power_icon.png")
 
-    boss_text_img = crop_boss_text_area(src_img)
-    # cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\boss_text_img_{get_current_datetime_string()}.png",boss_text_img)
-# cv2.imwrite(fr"E:\Projects\PyCharmProjects\TaskEX\temp\src_img_{get_current_datetime_string()}.png",src_img)
+    extracted_monster_name = ""
+    for profile_name in ("monster_text_ocr", "monster_text_ocr_fallback"):
+        boss_text_img = _crop_profile(src_img, profile_name)
+        if boss_text_img is None:
+            continue
+        _save_debug_frame(thread, f"monster_text_roi_{profile_name}", boss_text_img)
+        extracted_monster_name = extract_monster_name_from_image(boss_text_img)
+        if extracted_monster_name:
+            break
 
-    # Get the text from the image
-    extracted_monster_name = extract_monster_name_from_image(boss_text_img)
-    thread.log_message(f"Extracted Text: {extracted_monster_name}", "debug", console=False)
+    if not extracted_monster_name:
+        return None
+
+    thread.log_message(f"Extracted monster text: {extracted_monster_name}", "info", force_console=True)
 
     # Check and skip dawn monster
     if "dawn" in extracted_monster_name:
@@ -757,13 +947,40 @@ def read_monster_data(thread,src_img):
         # print("Cannot find the boss in the db \ read wrong name")
         return None
 
+    try:
+        candidate_labels = [f"{boss.name}(boss_id={boss.boss_monster_id},level_id={boss.id},logic={logic})" for boss, logic in bosses]
+        thread.log_message(
+            f"Monster lookup candidates: {', '.join(candidate_labels)}",
+            "debug",
+            force_console=False
+        )
+    except Exception:
+        pass
+
     return bosses
 
 def verify_monster_join(thread,extracted_boss_data):
     if not extracted_boss_data:
         return False
 
-    selected_boss_levels = thread.cache['join_rally_controls'].get('data', {})
+    selected_levels_data = _ensure_join_rally_controls(thread).get('data', [])
+    if not selected_levels_data:
+        return False
+
+    # Support both formats:
+    # 1) dict {boss_id: set(level_ids)}
+    # 2) list[MonsterLevel] from get_join_rally_controls
+    if isinstance(selected_levels_data, dict):
+        selected_boss_levels = selected_levels_data
+    else:
+        selected_boss_levels = {}
+        for level in selected_levels_data:
+            boss_id = getattr(level, "boss_monster_id", None)
+            level_id = getattr(level, "id", None)
+            if boss_id is None or level_id is None:
+                continue
+            selected_boss_levels.setdefault(boss_id, set()).add(level_id)
+
     if not selected_boss_levels:
         return False
 
@@ -771,20 +988,40 @@ def verify_monster_join(thread,extracted_boss_data):
     extracted_power_text = extract_monster_power_from_image(src_img.copy()) if src_img is not None else ""
     extracted_power = (extracted_power_text or "").strip().lower()
 
+    selected_boss_ids = set(selected_boss_levels.keys())
+
     for boss, logic in extracted_boss_data:
         selected_levels = selected_boss_levels.get(boss.boss_monster_id)
         if not selected_levels:
             continue
 
         if logic in (1, 3):
-            if len(extracted_boss_data) == 1 and boss.id in selected_levels:
+            if boss.id in selected_levels:
                 return True
             continue
 
         if logic in (2, 4):
             boss_power = (boss.power or "").strip().lower()
-            if extracted_power and boss_power == extracted_power and boss.id in selected_levels:
+            if boss.id not in selected_levels:
+                continue
+
+            # Power-aware matching when available.
+            if extracted_power and boss_power == extracted_power:
                 return True
+
+            # Fallback when power OCR is empty/unreliable: allow selected level match.
+            if not extracted_power:
+                return True
+
+    # Fallback: if OCR found the correct boss but ambiguous level/power, allow by boss id.
+    for boss, _logic in extracted_boss_data:
+        if boss.boss_monster_id in selected_boss_ids:
+            thread.log_message(
+                f"Monster matched by boss id fallback (boss_id={boss.boss_monster_id}, level_id={boss.id}).",
+                "debug",
+                force_console=False
+            )
+            return True
 
     return False
 
@@ -816,6 +1053,8 @@ def get_march_join_time(src_img):
     if src_img is None or src_img.size == 0:
         return False
 
+    # Full debug of join timer ROI comes from caller screenshot; keep focused crop for OCR diagnostics.
+
     # Skip if join time text is red (already too late)
     if detect_red_color(src_img):
         return False
@@ -824,27 +1063,66 @@ def get_march_join_time(src_img):
 
 
 def _extract_remaining_time_text_with_timeout(src_img, timeout_sec=5):
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(extract_remaining_rally_time_from_image, src_img)
-        try:
-            return future.result(timeout=timeout_sec)
-        except TimeoutError:
-            return None
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(extract_remaining_rally_time_from_image, src_img)
+    try:
+        return future.result(timeout=timeout_sec)
+    except TimeoutError:
+        return None
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _parse_remaining_time_candidate(raw_text):
+    if not raw_text or not isinstance(raw_text, str):
+        return None
+
+    normalized = raw_text.replace("\n", " ").replace("\r", " ").replace(".", ":")
+
+    # Keep only digits/colon as timer candidates; letters are never valid timer chars.
+    cleaned = re.sub(r"[^0-9:]", " ", normalized)
+    matches = re.findall(r"(?<!\d)(?:\d{1,2}:)?\d{2}:\d{2}(?!\d)", cleaned)
+    for token in matches:
+        parsed = parse_timer_to_timedelta(token)
+        if parsed is not None:
+            return parsed
+
+    return None
+
+
+def _build_remaining_time_rois(src_img):
+    primary = _crop_profile(src_img, "remaining_time_ocr_primary")
+    fallback = _crop_profile(src_img, "remaining_time_ocr_fallback")
+
+    rois = []
+    if primary is not None and primary.size > 0:
+        rois.append(primary)
+    if fallback is not None and fallback.size > 0:
+        rois.append(fallback)
+    return rois
 
 
 def get_remaining_rally_time(src_img, thread=None):
-    # Crop the image row wise 3 times and retain the middle portion
-    src_img = crop_middle_portion(src_img,True)
-    # Crop the image column wise 3 times and retain the middle portion
-    src_img = crop_middle_portion(src_img,False)
-    # Crop the image with a fixed height of 50 pixels to extract just the timer portion
-    src_img = crop_image_fixed_height(src_img,50)
+    candidate_rois = _build_remaining_time_rois(src_img)
+    remaining_text = None
+    remaining_time = None
+    debug_roi = candidate_rois[0] if candidate_rois else src_img
 
-    remaining_text = _extract_remaining_time_text_with_timeout(src_img, timeout_sec=1)
-    if not remaining_text:
-        remaining_time = None
-    else:
-        remaining_time = parse_timer_to_timedelta(remaining_text)
+    for roi in candidate_rois:
+        debug_roi = roi
+        remaining_text = _extract_remaining_time_text_with_timeout(roi, timeout_sec=1)
+        try:
+            if remaining_text:
+                remaining_time = _parse_remaining_time_candidate(remaining_text)
+                if remaining_time is not None:
+                    break
+
+            raw_text = extract_remaining_rally_time_text(roi)
+            remaining_time = _parse_remaining_time_candidate(raw_text)
+            if remaining_time is not None:
+                break
+        except Exception:
+            pass
 
     if remaining_time is None and thread is not None:
         try:
@@ -854,11 +1132,11 @@ def get_remaining_rally_time(src_img, thread=None):
                     "warning",
                     force_console=True
                 )
-            raw_text = extract_remaining_rally_time_text(src_img)
+            raw_text = extract_remaining_rally_time_text(debug_roi)
             timestamp = get_current_datetime_string()
             os.makedirs("temp", exist_ok=True)
             raw_path = os.path.join("temp", f"rally_time_raw_{timestamp}.png")
-            cv2.imwrite(raw_path, src_img)
+            cv2.imwrite(raw_path, debug_roi)
             thread.log_message(
                 f"Remaining time OCR failed. Raw text='{raw_text}'. Saved crop: {raw_path}",
                 "warning",
@@ -880,7 +1158,8 @@ def check_skipped_rallies(thread,src_img):
     """
 
     # Check skipped list
-    for cords_img in thread.cache['join_rally_controls']['cache']['skipped_monster_cords_img']:
+    controls = _ensure_join_rally_controls(thread)
+    for cords_img in controls.get('cache', {}).get('skipped_monster_cords_img', []):
         if is_template_match(src_img, cords_img):
             # print("Already skipped one")
             return False

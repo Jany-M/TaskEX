@@ -35,6 +35,9 @@ def template_match_coordinates(src_image, template_image, return_center=True, co
     :param threshold: Matching threshold (0 to 1).
     :return: (x, y) coordinates of the best match.
     """
+    if src_image is None or template_image is None:
+        return None
+
     if convert_gray:
         src_image = cv2.cvtColor(src_image, cv2.COLOR_BGR2GRAY)
         template_image = cv2.cvtColor(template_image, cv2.COLOR_BGR2GRAY)
@@ -64,6 +67,9 @@ def template_match_coordinates_all(src_image, template_image, return_center=Fals
     :param nms_distance: Maximum distance (in pixels) between matches to consider them overlapping.
     :return: List of (x, y) coordinates of distinct matches above the threshold, sorted by top-to-bottom.
     """
+    if src_image is None or template_image is None:
+        return []
+
     if convert_gray:
         src_image = cv2.cvtColor(src_image, cv2.COLOR_BGR2GRAY)
         template_image = cv2.cvtColor(template_image, cv2.COLOR_BGR2GRAY)
@@ -177,6 +183,9 @@ def is_template_match(src_image, template_image, convert_gray=True, threshold=0.
     :param threshold: Confidence threshold (0-1)
     :return: True if exact match found, False otherwise
     """
+    if src_image is None or template_image is None:
+        return False
+
     # Basic dimension check
     if src_image.shape[0] < template_image.shape[0] or \
             src_image.shape[1] < template_image.shape[1]:

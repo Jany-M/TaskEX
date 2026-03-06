@@ -1,7 +1,10 @@
+import os
+import subprocess
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, QTimer, QSettings
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QMainWindow, QPushButton
 
 from config.settings import VERSION
 from gui.generated.splash_screen import Ui_SplashScreen
@@ -29,6 +32,7 @@ class SplashScreen(QMainWindow):
 
         # Always skip login and continue directly to loading.
         self.hide_login_frame()
+        self.setup_debug_controls()
         QTimer.singleShot(0, self.load_signal.emit)
 
         self.show()  # Display the splash screen
@@ -61,6 +65,49 @@ class SplashScreen(QMainWindow):
         new_top = top + 50
 
         layout.setContentsMargins(left, new_top, right, bottom)
+
+    def setup_debug_controls(self):
+        if os.environ.get("TASKEX_DEBUG_BUILD") != "1":
+            return
+
+        self.ui.label_loading.setText("Debug build mode: startup logs enabled")
+
+        self.debug_logs_btn = QPushButton("Open Logs", self.ui.progress_frame)
+        self.debug_logs_btn.setMinimumHeight(32)
+        self.debug_logs_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgb(98, 114, 164);
+                color: white;
+                border-radius: 8px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: rgb(120, 135, 190);
+            }
+        """)
+        self.debug_logs_btn.clicked.connect(self.open_logs_folder)
+        self.ui.verticalLayout_5.addWidget(self.debug_logs_btn)
+
+    def open_logs_folder(self):
+        logs_dir = self.get_logs_dir()
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(logs_dir))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(logs_dir)])
+            else:
+                subprocess.Popen(["xdg-open", str(logs_dir)])
+        except Exception:
+            pass
+
+    def get_logs_dir(self) -> Path:
+        if getattr(sys, "frozen", False):
+            base_dir = Path(sys.executable).resolve().parent
+        else:
+            base_dir = Path(__file__).resolve().parent.parent
+        return base_dir / "logs"
 
 
     def login_as_guest(self):

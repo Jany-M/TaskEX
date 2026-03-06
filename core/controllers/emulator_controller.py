@@ -1,6 +1,7 @@
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QPushButton, QLineEdit
 from sqlalchemy import Boolean
+import logging
 
 from core.emulator_thread import EmulatorThread
 from typing import Optional
@@ -25,6 +26,18 @@ def start_emulator_instance(main_window: 'MainWindow', index: int) -> None:
     """
     Start the emulator instance thread for the given index.
     """
+    try:
+        profile_id = getattr(main_window.widgets, f'profile_combobox_{index}').currentData()
+        if profile_id is not None:
+            from gui.controllers.run_tab_controller import save_profile_controls
+            save_profile_controls(main_window, index)
+    except Exception as e:
+        logging.getLogger("taskex_boot").warning(
+            "Could not auto-save profile controls for instance %s: %s",
+            index,
+            e
+        )
+
     # Get port number
     port: str = getattr(main_window.widgets, f"im_emu_port_{index}").text()
     emulator_thread: EmulatorThread = EmulatorThread(main_window, port, index, "emu")

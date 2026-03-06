@@ -64,15 +64,17 @@ class GeneralProfileWidget(QWidget):
         # Confirm with the user
         if show_confirmation_dialog(self, "confirm", f"Are you sure you want to remove {self.ui.edit_general.text()}?"):
             session = get_session()
+            delete_success = False
 
             try:
                 # Query the database to find the general by its ID
-                general = session.query(General).filter(General.id == self.ui.edit_general.property('general_id')).first()
-                # print(self.ui.edit_general.property('general_id'))
+                general_id = self.ui.edit_general.property('general_id')
+                general = session.query(General).filter(General.id == general_id).first()
                 if general:
                     # Delete the general's record from the database
                     session.delete(general)
                     session.commit()  # Commit the transaction to apply changes
+                    delete_success = True
                     self.scan_console.emit(
                         f"General '{self.ui.edit_general.text()}' has been removed.")
 
@@ -90,7 +92,7 @@ class GeneralProfileWidget(QWidget):
                         os.remove(general_list_img)
                 else:
                     self.scan_console.emit(
-                        f"Error: General '{self.ui.edit_general.text()}' not found in the database.")
+                        f"Delete skipped: General id '{general_id}' was not found in the database.")
 
             except Exception as e:
                 session.rollback()  # Rollback in case of error
@@ -100,7 +102,7 @@ class GeneralProfileWidget(QWidget):
                 session.close()
 
             # Remove the widget from the UI
-            if self.flow_layout:
+            if delete_success and self.flow_layout:
                 self.flow_layout.removeWidget(self)
                 self.deleteLater()
 

@@ -75,7 +75,19 @@ def get_strict_monster_match():
 # Project base directory
 # BASE_DIR = Path(__file__).resolve().parent.parent
 
+def _get_base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def _get_database_path() -> Path:
+    db_dir = _get_base_dir() / "db"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    return db_dir / "task_ex.db"
+
+
 # DB URL
-DATABASE_URL = f"sqlite:///{os.path.join(Path(__file__).resolve().parent.parent, 'db', 'task_ex.db')}"
+DATABASE_URL = f"sqlite:///{_get_database_path()}"
 
 
