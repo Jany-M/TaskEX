@@ -1,6 +1,6 @@
 import sys
 
-from PySide6.QtCore import QSize, Qt, QSettings
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QCursor, QFont, QPalette
 from PySide6.QtWidgets import QPushButton, QSizePolicy, QWidget
 
@@ -54,10 +54,9 @@ def handle_button_click(main_window, btn):
         # Call function to add a new dynamic button
         setup_and_load_instance(main_window)
 
-    # CALL LOGOUT FUNCTION
+    # EXIT APPLICATION
     elif btnName == "btn_logout":
-        # Call function to add a new dynamic button
-        logout()
+        exit_application()
 
     # SHOW EMULATOR PAGE
     elif btnName.startswith("btn_emu_"):
@@ -106,9 +105,7 @@ def save_screen_dpi(dpi_spinbox):
         session.close()
 
 
-def logout():
-    settings = QSettings("TaskEnforceX", "TaskEX")
-    settings.setValue("logged_in", False)
+def exit_application():
     sys.exit()
 
 def setup_and_load_instance(main_window,selection = True,instance=None):

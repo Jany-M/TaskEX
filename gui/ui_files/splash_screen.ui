@@ -32,7 +32,7 @@
    </size>
   </property>
   <property name="windowTitle">
-   <string>TaskEX - Login</string>
+   <string>TaskEX</string>
   </property>
   <property name="styleSheet">
    <string notr="true">QMainWindow { border: none; margin: 0px; padding: 0px; }
@@ -201,7 +201,7 @@ QPushButton:pressed {
         </widget>
        </item>
        <item alignment="Qt::AlignmentFlag::AlignBottom">
-        <widget class="QFrame" name="login_frame">
+        <widget class="QFrame" name="action_frame">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
            <horstretch>0</horstretch>
@@ -238,7 +238,7 @@ QPushButton:pressed {
            </spacer>
           </item>
           <item row="3" column="0">
-           <widget class="QPushButton" name="btn_login">
+           <widget class="QPushButton" name="btn_startup">
             <property name="enabled">
              <bool>false</bool>
             </property>
@@ -255,12 +255,12 @@ QPushButton:pressed {
              </size>
             </property>
             <property name="text">
-             <string>Login</string>
+             <string>Start</string>
             </property>
            </widget>
           </item>
           <item row="0" column="0" colspan="2" alignment="Qt::AlignmentFlag::AlignLeft">
-           <widget class="QLineEdit" name="username">
+           <widget class="QLineEdit" name="startup_field_1">
             <property name="enabled">
              <bool>false</bool>
             </property>
@@ -277,12 +277,12 @@ QPushButton:pressed {
              </size>
             </property>
             <property name="placeholderText">
-             <string>Username</string>
+             <string>Field 1</string>
             </property>
            </widget>
           </item>
           <item row="1" column="0" colspan="2" alignment="Qt::AlignmentFlag::AlignLeft">
-           <widget class="QLineEdit" name="password">
+           <widget class="QLineEdit" name="startup_field_2">
             <property name="enabled">
              <bool>false</bool>
             </property>
@@ -299,12 +299,12 @@ QPushButton:pressed {
              <enum>QLineEdit::EchoMode::Password</enum>
             </property>
             <property name="placeholderText">
-             <string>Password</string>
+             <string>Field 2</string>
             </property>
            </widget>
           </item>
           <item row="2" column="0">
-           <widget class="QCheckBox" name="remember_choice">
+           <widget class="QCheckBox" name="startup_option">
             <property name="enabled">
              <bool>false</bool>
             </property>
@@ -315,7 +315,7 @@ QPushButton:pressed {
              </size>
             </property>
             <property name="text">
-             <string>Remember Choice</string>
+             <string>Option</string>
             </property>
            </widget>
           </item>
@@ -371,7 +371,7 @@ QPushButton:pressed {
            </spacer>
           </item>
           <item row="0" column="5">
-           <widget class="QPushButton" name="btn_login_guest">
+           <widget class="QPushButton" name="btn_continue">
             <property name="minimumSize">
              <size>
               <width>150</width>
@@ -379,7 +379,7 @@ QPushButton:pressed {
              </size>
             </property>
             <property name="text">
-             <string>Login as Guest</string>
+             <string>Continue</string>
             </property>
            </widget>
           </item>

@@ -14,6 +14,4 @@ pyside6-uic gui/ui_files/march_speed_selection.ui -o gui/generated/march_speed_s
 pyside6-uic gui/ui_files/splash_screen.ui -o gui/generated/splash_screen.py
 
 
-pyside6-rcc resources/resources.qrc -o resources_rc.py
-
-from resources.qrc_generated import resources_rc
+pyside6-rcc resources/resources.qrc -o resources/resources_rc.py

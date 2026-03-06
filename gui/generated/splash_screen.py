@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'splash_screen.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.7.2
+## Created by: Qt User Interface Compiler version 6.10.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -150,54 +150,58 @@ class Ui_SplashScreen(object):
 
         self.verticalLayout_4.addWidget(self.header_frame, 0, Qt.AlignmentFlag.AlignBottom)
 
-        self.login_frame = QFrame(self.dropShadowFrame)
-        self.login_frame.setObjectName(u"login_frame")
-        sizePolicy1.setHeightForWidth(self.login_frame.sizePolicy().hasHeightForWidth())
-        self.login_frame.setSizePolicy(sizePolicy1)
-        self.login_frame.setMaximumSize(QSize(16777215, 16777215))
-        self.login_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        self.login_frame.setFrameShadow(QFrame.Shadow.Raised)
-        self.gridLayout_2 = QGridLayout(self.login_frame)
+        self.action_frame = QFrame(self.dropShadowFrame)
+        self.action_frame.setObjectName(u"action_frame")
+        sizePolicy1.setHeightForWidth(self.action_frame.sizePolicy().hasHeightForWidth())
+        self.action_frame.setSizePolicy(sizePolicy1)
+        self.action_frame.setMaximumSize(QSize(16777215, 16777215))
+        self.action_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        self.action_frame.setFrameShadow(QFrame.Shadow.Raised)
+        self.gridLayout_2 = QGridLayout(self.action_frame)
         self.gridLayout_2.setObjectName(u"gridLayout_2")
         self.gridLayout_2.setSizeConstraint(QLayout.SizeConstraint.SetDefaultConstraint)
         self.horizontalSpacer = QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.gridLayout_2.addItem(self.horizontalSpacer, 0, 2, 1, 1)
 
-        self.btn_login = QPushButton(self.login_frame)
-        self.btn_login.setObjectName(u"btn_login")
+        self.btn_startup = QPushButton(self.action_frame)
+        self.btn_startup.setObjectName(u"btn_startup")
+        self.btn_startup.setEnabled(False)
         sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         sizePolicy3.setHorizontalStretch(0)
         sizePolicy3.setVerticalStretch(0)
-        sizePolicy3.setHeightForWidth(self.btn_login.sizePolicy().hasHeightForWidth())
-        self.btn_login.setSizePolicy(sizePolicy3)
-        self.btn_login.setMinimumSize(QSize(180, 45))
+        sizePolicy3.setHeightForWidth(self.btn_startup.sizePolicy().hasHeightForWidth())
+        self.btn_startup.setSizePolicy(sizePolicy3)
+        self.btn_startup.setMinimumSize(QSize(180, 45))
 
-        self.gridLayout_2.addWidget(self.btn_login, 3, 0, 1, 1)
+        self.gridLayout_2.addWidget(self.btn_startup, 3, 0, 1, 1)
 
-        self.username = QLineEdit(self.login_frame)
-        self.username.setObjectName(u"username")
-        sizePolicy3.setHeightForWidth(self.username.sizePolicy().hasHeightForWidth())
-        self.username.setSizePolicy(sizePolicy3)
-        self.username.setMinimumSize(QSize(300, 45))
+        self.startup_field_1 = QLineEdit(self.action_frame)
+        self.startup_field_1.setObjectName(u"startup_field_1")
+        self.startup_field_1.setEnabled(False)
+        sizePolicy3.setHeightForWidth(self.startup_field_1.sizePolicy().hasHeightForWidth())
+        self.startup_field_1.setSizePolicy(sizePolicy3)
+        self.startup_field_1.setMinimumSize(QSize(300, 45))
 
-        self.gridLayout_2.addWidget(self.username, 0, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
+        self.gridLayout_2.addWidget(self.startup_field_1, 0, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
 
-        self.password = QLineEdit(self.login_frame)
-        self.password.setObjectName(u"password")
-        self.password.setMinimumSize(QSize(300, 45))
-        self.password.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
-        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.startup_field_2 = QLineEdit(self.action_frame)
+        self.startup_field_2.setObjectName(u"startup_field_2")
+        self.startup_field_2.setEnabled(False)
+        self.startup_field_2.setMinimumSize(QSize(300, 45))
+        self.startup_field_2.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
+        self.startup_field_2.setEchoMode(QLineEdit.EchoMode.Password)
 
-        self.gridLayout_2.addWidget(self.password, 1, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
+        self.gridLayout_2.addWidget(self.startup_field_2, 1, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
 
-        self.remember_choice = QCheckBox(self.login_frame)
-        self.remember_choice.setObjectName(u"remember_choice")
-        self.remember_choice.setMinimumSize(QSize(0, 40))
+        self.startup_option = QCheckBox(self.action_frame)
+        self.startup_option.setObjectName(u"startup_option")
+        self.startup_option.setEnabled(False)
+        self.startup_option.setMinimumSize(QSize(0, 40))
 
-        self.gridLayout_2.addWidget(self.remember_choice, 2, 0, 1, 1)
+        self.gridLayout_2.addWidget(self.startup_option, 2, 0, 1, 1)
 
-        self.line = QFrame(self.login_frame)
+        self.line = QFrame(self.action_frame)
         self.line.setObjectName(u"line")
         sizePolicy.setHeightForWidth(self.line.sizePolicy().hasHeightForWidth())
         self.line.setSizePolicy(sizePolicy)
@@ -217,13 +221,13 @@ class Ui_SplashScreen(object):
 
         self.gridLayout_2.addItem(self.horizontalSpacer_3, 0, 6, 1, 1)
 
-        self.btn_login_guest = QPushButton(self.login_frame)
-        self.btn_login_guest.setObjectName(u"btn_login_guest")
-        self.btn_login_guest.setMinimumSize(QSize(150, 45))
+        self.btn_continue = QPushButton(self.action_frame)
+        self.btn_continue.setObjectName(u"btn_continue")
+        self.btn_continue.setMinimumSize(QSize(150, 45))
 
-        self.gridLayout_2.addWidget(self.btn_login_guest, 0, 5, 1, 1)
+        self.gridLayout_2.addWidget(self.btn_continue, 0, 5, 1, 1)
 
-        self.btn_exit = QPushButton(self.login_frame)
+        self.btn_exit = QPushButton(self.action_frame)
         self.btn_exit.setObjectName(u"btn_exit")
         self.btn_exit.setMinimumSize(QSize(150, 45))
         self.btn_exit.setMaximumSize(QSize(16777215, 16777215))
@@ -231,7 +235,7 @@ class Ui_SplashScreen(object):
         self.gridLayout_2.addWidget(self.btn_exit, 1, 5, 1, 1)
 
 
-        self.verticalLayout_4.addWidget(self.login_frame, 0, Qt.AlignmentFlag.AlignBottom)
+        self.verticalLayout_4.addWidget(self.action_frame, 0, Qt.AlignmentFlag.AlignBottom)
 
         self.progress_frame = QFrame(self.dropShadowFrame)
         self.progress_frame.setObjectName(u"progress_frame")
@@ -310,14 +314,14 @@ class Ui_SplashScreen(object):
     # setupUi
 
     def retranslateUi(self, SplashScreen):
-        SplashScreen.setWindowTitle(QCoreApplication.translate("SplashScreen", u"TaskEX - Login", None))
+        SplashScreen.setWindowTitle(QCoreApplication.translate("SplashScreen", u"TaskEX", None))
         self.label_title_version.setText(QCoreApplication.translate("SplashScreen", u"<html><head/><body><p>TaskEnforcerX <span style=\" font-size:12pt;\">v</span><span style=\" font-size:16pt;\">0.0.1</span></p></body></html>", None))
         self.label_description.setText(QCoreApplication.translate("SplashScreen", u"<html><head/><body><p>Ultimate Edition</p></body></html>", None))
-        self.btn_login.setText(QCoreApplication.translate("SplashScreen", u"Login", None))
-        self.username.setPlaceholderText(QCoreApplication.translate("SplashScreen", u"Username", None))
-        self.password.setPlaceholderText(QCoreApplication.translate("SplashScreen", u"Password", None))
-        self.remember_choice.setText(QCoreApplication.translate("SplashScreen", u"Remember Choice", None))
-        self.btn_login_guest.setText(QCoreApplication.translate("SplashScreen", u"Login as Guest", None))
+        self.btn_startup.setText(QCoreApplication.translate("SplashScreen", u"Start", None))
+        self.startup_field_1.setPlaceholderText(QCoreApplication.translate("SplashScreen", u"Field 1", None))
+        self.startup_field_2.setPlaceholderText(QCoreApplication.translate("SplashScreen", u"Field 2", None))
+        self.startup_option.setText(QCoreApplication.translate("SplashScreen", u"Option", None))
+        self.btn_continue.setText(QCoreApplication.translate("SplashScreen", u"Continue", None))
         self.btn_exit.setText(QCoreApplication.translate("SplashScreen", u"Exit", None))
         self.label_loading.setText(QCoreApplication.translate("SplashScreen", u"Setting up TaskEnforcerX...", None))
         self.label_credits.setText(QCoreApplication.translate("SplashScreen", u"<html><head/><body><p>By: MwoNuZzz & TheAnt</p></body></html>", None))

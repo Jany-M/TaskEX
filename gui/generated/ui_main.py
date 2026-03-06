@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFram
     QWidget)
 
 from core.custom_widgets.QCheckComboBox import QCheckComboBox
-import resources_rc
+from resources import resources_rc
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):

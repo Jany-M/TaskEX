@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, QTimer, QSettings
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import QMainWindow, QPushButton
 
 from config.settings import VERSION
@@ -30,24 +30,16 @@ class SplashScreen(QMainWindow):
         self.ui.label_title_version.setText(
             f'<html><head/><body><p>TaskEnforcerX <span style=" font-size:16pt;">{VERSION}</span></p></body></html>')
 
-        # Always skip login and continue directly to loading.
-        self.hide_login_frame()
+        # Start directly and show only progress controls.
+        self.configure_startup_frames()
         self.setup_debug_controls()
         QTimer.singleShot(0, self.load_signal.emit)
 
         self.show()  # Display the splash screen
 
-    def check_previous_login(self):
-        settings = QSettings("TaskEnforceX", "TaskEX")
-        return settings.value("logged_in", False, type=bool)
-
-    def save_login_state(self, state):
-        settings = QSettings("TaskEnforceX", "TaskEX")
-        settings.setValue("logged_in", state)
-
-    def hide_login_frame(self):
-        # Hide the login frame
-        self.ui.login_frame.setMaximumHeight(0)
+    def configure_startup_frames(self):
+        # Hide action controls and show progress immediately.
+        self.ui.action_frame.setMaximumHeight(0)
 
         # Unhide the progress frame
         self.ui.progress_frame.setMaximumHeight(16777215)
@@ -108,57 +100,3 @@ class SplashScreen(QMainWindow):
         else:
             base_dir = Path(__file__).resolve().parent.parent
         return base_dir / "logs"
-
-
-    def login_as_guest(self):
-        # print("Logged in as Guest")
-
-        self.hide_login_frame()
-
-        # Update the login state in persistent storage
-        self.save_login_state(True)
-
-        # Emit the signal to indicate guest login
-        self.load_signal.emit()
-
-        # # Start animations
-        # self.animate_login_frame_hide()
-        # self.animate_header_frame_move()
-
-
-    # def animate_login_frame_hide(self):
-    #     """ Animate hiding of the login frame by shrinking its height. """
-    #     login_frame = self.ui.login_frame
-    #     height = login_frame.height()
-    #
-    #     # Create an animation that changes the maximum height from current to 0
-    #     animation = QPropertyAnimation(login_frame, b"maximumHeight")
-    #     animation.setDuration(500)  # Animation duration in milliseconds
-    #     animation.setStartValue(height)
-    #     animation.setEndValue(0)
-    #     animation.setEasingCurve(QEasingCurve.InOutQuad)  # easing for smooth animation
-    #     animation.start()
-    #
-    #     # Adjust the main window height after animation completes
-    #     animation.finished.connect(self.adjust_window_height(-height))
-    #
-    #     # Hide the login_frame completely after the animation
-    #     animation.finished.connect( self.ui.login_frame.setMaximumHeight(0))
-    #
-    #
-    # def animate_header_frame_move(self):
-    #     """ Animate the header frame to move down slightly. """
-    #     header_frame = self.ui.header_frame
-    #     y_position = header_frame.pos().y()
-    #
-    #     # Create an animation to move the header_frame downwards
-    #     animation = QPropertyAnimation(header_frame, b"pos")
-    #     animation.setDuration(500)  # Animation duration in milliseconds
-    #     animation.setStartValue(header_frame.pos())
-    #     animation.setEndValue(header_frame.pos() + QPoint(0, 20))
-    #     animation.start()
-    #
-    # def adjust_window_height(self, delta_height):
-    #     """ Adjust the height of the QMainWindow. """
-    #     # Set Splash screen window height
-    #     self.setFixedHeight(350)

@@ -10,7 +10,7 @@ TaskEnforcerX is a Python-based bot designed to automate tasks in the mobile gam
   
     - Python 3.12.4 installed
     - BlueStacks emulator
-    - Qt Creator 14.0.1 (Community Edition) (used for UI design)
+    - Qt Creator 14.0.1 (Community Edition)  for UI design
 
 ### Emulator Settings:
 
@@ -29,7 +29,7 @@ TaskEnforcerX is a Python-based bot designed to automate tasks in the mobile gam
 
   1: Clone the repository:
   ```
-  git clone https://github.com/evsahal/TaskEX.git
+  git clone https://github.com/Jany-M/TaskEX.git
   cd TaskEX
   ```
   2: Install dependencies:
@@ -87,13 +87,45 @@ python setup.py build-debug
 - Keep required runtime folders/files available during build (already configured in setup): `assets/`, `platform-tools/`, `Tesseract-OCR/`, and `db/task_ex.db`.
 - If you specifically need x64 output, make sure your Python interpreter is x64 before building.
 
+## Regenerate UI and Resources
+
+Generated files should not be edited directly. Update source files first, then regenerate.
+
+1: Open PowerShell in the project root.
+
+2: Activate your virtual environment:
+```
+.\.venv\Scripts\Activate.ps1
+```
+
+3: Regenerate UI Python files from `.ui` sources:
+```
+pyside6-uic gui/ui_files/main.ui -o gui/generated/ui_main.py
+pyside6-uic gui/ui_files/instance_page.ui -o gui/generated/instance_page.py
+pyside6-uic gui/ui_files/general_profile.ui -o gui/generated/general_profile.py
+pyside6-uic gui/ui_files/monster_profile.ui -o gui/generated/monster_profile.py
+pyside6-uic gui/ui_files/monster_edit_dialog.ui -o gui/generated/monster_edit_dialog.py
+pyside6-uic gui/ui_files/monster_upload_dialog.ui -o gui/generated/monster_upload_dialog.py
+pyside6-uic gui/ui_files/black_market_profile.ui -o gui/generated/black_market_profile.py
+pyside6-uic gui/ui_files/champion_profile.ui -o gui/generated/champion_profile.py
+pyside6-uic gui/ui_files/generals_selection.ui -o gui/generated/generals_selection.py
+pyside6-uic gui/ui_files/preset_configuration.ui -o gui/generated/preset_configuration.py
+pyside6-uic gui/ui_files/march_speed_selection.ui -o gui/generated/march_speed_selection.py
+pyside6-uic gui/ui_files/splash_screen.ui -o gui/generated/splash_screen.py
+```
+
+4: Regenerate Qt resources from `.qrc`:
+```
+pyside6-rcc resources/resources.qrc -o resources/resources_rc.py
+```
+
 ## Expiry Configuration
 
 TaskEX supports an optional expiry check controlled by the `TASKEX_EXPIRE` environment variable.
 
 - If `TASKEX_EXPIRE` is empty or not set, expiry validation is disabled.
 - If set, it must use `YYYY-MM-DD` format (example: `2026-12-31`).
-- Guest login does not bypass or trigger expiry; expiry is a global runtime check when configured.
+- Expiry is a global runtime check when configured.
 
 ## Screenshots / Demo
 
@@ -116,24 +148,6 @@ This means:
 
 📜 You can read the full license details [here](https://github.com/evsahal/TaskEX/blob/master/LICENSE).
 
-## Contact 
+## Support
 
-For support, questions, or discussions about TaskEnforcerX, join the official Discord server:
-
-[TaskEnforcerX Discord Community](https://discord.gg/CPCcxRQn2B)
-
-Feel free to ask for help, report bugs, or suggest new features! 🚀
-
-## Support & Donations
-
-If you find TaskEnforcerX helpful and would like to support its development, consider making a donation. Your support helps keep the project free and open-source while enabling further improvements and new features!
-
-
-💵 Paypal: https://paypal.me/taskenforcerx
-
-☕ Buy Me a Coffee: https://buymeacoffee.com/taskenforcerx
-
-💰 Donate via Crypto: DM me on Discord
-
-
-
+If you find TaskEnforcerX helpful and would like to support its development, consider contributing!
