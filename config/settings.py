@@ -75,10 +75,39 @@ def _get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _get_app_data_dir() -> Path:
+    """Get the application data directory (AppData/Local for built exe, project root for dev)."""
+    if getattr(sys, "frozen", False):
+        # For built exe: use %LOCALAPPDATA%\TaskEnforcerX
+        app_data = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        app_dir = app_data / "TaskEnforcerX"
+    else:
+        # For development: use project db folder
+        app_dir = _get_base_dir() / "db"
+    
+    app_dir.mkdir(parents=True, exist_ok=True)
+    return app_dir
+
+
 def _get_database_path() -> Path:
-    db_dir = _get_base_dir() / "db"
-    db_dir.mkdir(parents=True, exist_ok=True)
-    return db_dir / "task_ex.db"
+    """
+    Get database path. For built exe, uses persistent AppData location.
+    On first run, copies bundled database from exe directory if it exists.
+    """
+    db_path = _get_app_data_dir() / "task_ex.db"
+    
+    # If running as exe and database doesn't exist in AppData, try to copy bundled version
+    if getattr(sys, "frozen", False) and not db_path.exists():
+        bundled_db = _get_base_dir() / "db" / "task_ex.db"
+        if bundled_db.exists():
+            try:
+                import shutil
+                shutil.copy2(bundled_db, db_path)
+            except Exception:
+                # If copy fails, database will be created fresh on init_db()
+                pass
+    
+    return db_path
 
 
 # DB URL
