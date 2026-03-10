@@ -119,6 +119,141 @@ pyside6-uic gui/ui_files/splash_screen.ui -o gui/generated/splash_screen.py
 pyside6-rcc resources/resources.qrc -o resources/resources_rc.py
 ```
 
+## MCP Development Setup (AI-Assisted Development)
+
+TaskEnforcerX includes an MCP (Model Context Protocol) extension package that lets AI assistants like GitHub Copilot, Cursor or Claude interact directly with connected Android devices during development. This enables you to collaboratively develop new bot features with an AI that can see screenshots, tap the screen, read logs, and inspect the UI hierarchy in real time.
+
+The setup uses [adb-mcp](https://github.com/Jany-M/adb-mcp) — a standalone MCP server for Android device control — extended with TaskEX-specific tools that live in this project under `mcp-extensions/`.
+
+### Architecture
+
+```
+adb-mcp/                          ← standalone MCP server (separate repo)
+  ↑ loads at startup via EXTENSIONS_DIR env var
+
+TaskEX_Ant/
+  mcp-extensions/                 ← TaskEX MCP tools (this project)
+    src/taskex/                   ← TypeScript source
+    dist/taskex/                  ← compiled output (what adb-mcp loads)
+    taskex.config.json            ← your local config (not committed)
+    taskex.config.example.json    ← config template
+```
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) v16 or higher
+- [adb-mcp](https://github.com/Jany-M/adb-mcp) cloned and built (see its README)
+- ADB in your PATH (comes with BlueStacks via `platform-tools/`)
+
+### Setup
+
+**1. Build the MCP extension:**
+
+```powershell
+cd mcp-extensions
+npm install
+npm run build
+```
+
+**2. Create your config file** (copy the example and edit):
+
+```powershell
+cp mcp-extensions\taskex.config.example.json mcp-extensions\taskex.config.json
+```
+
+Edit `taskex.config.json` to match your BlueStacks port(s) and settings. The full list of options is documented in [taskex.config.example.json](mcp-extensions/taskex.config.example.json).
+
+**3. Configure your MCP client** — see sections below for VS Code and Claude Desktop.
+
+### VS Code Configuration
+
+Add to your VS Code `settings.json` (User or Workspace):
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "adb-mcp": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["C:/adb-mcp/dist/index.js"],
+        "env": {
+          "ADB_PATH": "C:/TaskEX_Ant/platform-tools/adb.exe",
+          "EXTENSIONS_DIR": "C:/TaskEX_Ant/mcp-extensions/dist",
+          "TASKEX_CONFIG_PATH": "C:/TaskEX_Ant/mcp-extensions/taskex.config.json"
+        }
+      }
+    }
+  }
+}
+```
+
+> Adjust the paths to match your actual folder locations. `ADB_PATH` is required if `adb` is not on your system PATH (it usually isn't when launched via MCP).
+
+### Claude Desktop Configuration
+
+Add to your `claude_desktop_config.json` (usually at `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "adb-mcp": {
+      "command": "node",
+      "args": ["C:/adb-mcp/dist/index.js"],
+      "env": {
+        "ADB_PATH": "C:/TaskEX_Ant/platform-tools/adb.exe",
+        "EXTENSIONS_DIR": "C:/TaskEX_Ant/mcp-extensions/dist",
+        "TASKEX_CONFIG_PATH": "C:/TaskEX_Ant/mcp-extensions/taskex.config.json"
+      }
+    }
+  }
+}
+```
+
+### Available TaskEX MCP Tools
+
+Once loaded, the following tools are available to the AI assistant:
+
+| Tool | Description |
+|------|-------------|
+| `taskex_select_device_by_port` | Map a BlueStacks port (e.g. 5555) to an ADB device serial |
+| `taskex_screenshot` | Capture the current screen; optionally return as base64 |
+| `taskex_tap` | Tap at screen coordinates with retry logic |
+| `taskex_swipe` | Swipe between two points with configurable speed |
+| `taskex_keyevent` | Send key events: BACK, HOME, ENTER, POWER, VOLUME, digits |
+| `taskex_wait_for_screen` | Wait for text to appear or disappear on screen |
+| `taskex_evony_control` | Start/stop the Evony app |
+| `taskex_debug_bundle` | Collect device info, logcat, UI hierarchy in one JSON bundle |
+
+### Configuration Reference
+
+All settings can be set in `taskex.config.json` or overridden via environment variables.
+
+| Setting | Env var | Default | Description |
+|---------|---------|---------|-------------|
+| *(adb binary)* | `ADB_PATH` | `adb` (from PATH) | Full path to `adb.exe` — **required** if adb is not in your system PATH |
+| `blueStacksPorts` | `TASKEX_BLUESTACKS_PORTS` | `[5555, 5556]` | BlueStacks ADB ports |
+| `evonyPackage` | `TASKEX_EVONY_PACKAGE` | `com.topgamesinc.evony` | App package name |
+| `evonyActivity` | `TASKEX_EVONY_ACTIVITY` | `...UnityActivity` | Main activity |
+| `screenStateTimeout` | — | `10000` | ms to wait in wait_for_screen |
+| `logRetentionLines` | — | `100` | Logcat lines in debug bundle |
+| `coordinateScaleX/Y` | — | `1.0` | Coordinate scaling factors |
+
+Config file path: `TASKEX_CONFIG_PATH` env var (defaults to `./taskex.config.json` relative to where adb-mcp is launched).
+
+### Development Workflow
+
+After changing any tool source file:
+
+```powershell
+cd mcp-extensions
+npm run build
+```
+
+Then restart the MCP server in your editor (VS Code: Cmd/Ctrl+Shift+P → "MCP: Restart Server").
+
+adb-mcp itself never needs to be modified or rebuilt for TaskEX tool changes.
+
 ## Screenshots / Demo
 
 Here’s a preview of TaskEnforcerX in action:
@@ -140,6 +275,9 @@ This means:
 
 📜 You can read the full license details [here](https://github.com/evsahal/TaskEX/blob/master/LICENSE).
 
+## Android - SDK Platform Tools (latest ADB.exe) 
+
+[Official Google Download](https://developer.android.com/tools/releases/platform-tools)
 
 ## Contribution
 

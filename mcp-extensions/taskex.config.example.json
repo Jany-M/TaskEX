@@ -1,0 +1,22 @@
+{
+  "blueStacksPorts": [5555, 5556],
+  "evonyPackage": "com.topgamesinc.evony",
+  "evonyActivity": "com.topgamesinc.androidplugin.UnityActivity",
+  "tapRetryTimeout": 5000,
+  "swipeRetryTimeout": 5000,
+  "screenStateTimeout": 10000,
+  "logRetentionLines": 100,
+  "coordinateScaleX": 1.0,
+  "coordinateScaleY": 1.0,
+  "_comments": {
+    "blueStacksPorts": "List of ports where BlueStacks instances are running",
+    "evonyPackage": "Android package name for Evony app",
+    "evonyActivity": "Main activity name for Evony app",
+    "tapRetryTimeout": "Max time (ms) to retry failed tap operations",
+    "swipeRetryTimeout": "Max time (ms) to retry failed swipe operations",
+    "screenStateTimeout": "Max time (ms) to wait for screen state changes (wait_for_screen tool)",
+    "logRetentionLines": "Number of logcat lines to include in debug bundles",
+    "coordinateScaleX": "X-axis coordinate scaling factor (for non-standard resolutions)",
+    "coordinateScaleY": "Y-axis coordinate scaling factor (for non-standard resolutions)"
+  }
+}

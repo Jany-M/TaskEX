@@ -1,0 +1,17 @@
+{
+  "name": "taskex-mcp-extensions",
+  "version": "1.0.0",
+  "description": "TaskEX-specific MCP tools for adb-mcp",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "typescript": "^5.3.3"
+  }
+}

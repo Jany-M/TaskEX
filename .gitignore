@@ -18,3 +18,4 @@ TaskEnforcerX.egg-info/
 /mcp-extensions/node_modules
 #convert.txt
 mcp-extensions/taskex.config.json
+/mcp-extensions/dist
