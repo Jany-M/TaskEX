@@ -157,6 +157,40 @@ python main.py --stop-instance 5
 python main.py --stop-instance 5575
 ```
 
+## Feature Runtime Modes (Per Instance)
+
+The run orchestrator supports three runtime modes per feature, per instance:
+
+- `Auto-run always`: feature runs continuously while the instance thread is running
+- `Manual start/stop`: feature runs only after clicking `Start` (button toggles to `Stop`)
+- `Auto-run off`: feature is disabled at runtime
+
+Supported features:
+
+- Join Rally
+- Auto Gather
+- Auto Bubble
+
+Default behavior:
+
+- Auto Bubble: enabled + `Auto-run always`
+- Join Rally: enabled + `Manual start/stop`
+- Auto Gather: enabled + `Manual start/stop`
+
+These values are saved in profile settings per instance.
+
+## Global Template Manager Shortcuts
+
+You can open template configuration dialogs from anywhere in the app:
+
+- `Ctrl+Shift+B`: open Bubble Template Configuration
+- `Ctrl+Shift+G`: open Resource Tile Template Configuration
+
+Required template placeholders are documented in:
+
+- [assets/540p/bubbles/README.md](assets/540p/bubbles/README.md)
+- [assets/540p/gather/README.md](assets/540p/gather/README.md)
+
 ## MCP Development Setup (AI-Assisted Development)
 
 TaskEnforcerX includes an MCP (Model Context Protocol) extension package that lets AI assistants like GitHub Copilot, Cursor or Claude interact directly with connected Android devices during development. This enables you to collaboratively develop new bot features with an AI that can see screenshots, tap the screen, read logs, and inspect the UI hierarchy in real time.
@@ -264,6 +298,9 @@ Once loaded, the following tools are available to the AI assistant:
 | `taskex_debug_bundle` | Collect device info, logcat, UI hierarchy in one JSON bundle |
 | `taskex_list_instances` | List DB-registered TaskEX instances (ID, name, port, profile) |
 | `taskex_instance_control` | Start/stop instance by identifier, id, port, or name |
+| `taskex_template_match` | Run OpenCV template match on the latest screenshot |
+| `taskex_screen_region` | Crop a screen region and return metadata/image payload |
+| `taskex_find_and_tap` | Find a template on-screen and tap matched coordinates |
 
 ### Instance MCP Examples
 

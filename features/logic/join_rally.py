@@ -88,6 +88,9 @@ def _default_join_rally_controls():
     return {
         "data": [],
         "settings": {
+            "enabled": True,
+            "service_mode": "manual",
+            "manual_running": False,
             "join_oldest_rallies_first": False,
             "selected_presets": {"presets": {}},
             "auto_use_stamina": {"enabled": False, "option": None},
@@ -117,6 +120,9 @@ def _ensure_join_rally_controls(thread):
         )
 
     controls.setdefault('settings', {})
+    controls['settings'].setdefault('enabled', True)
+    controls['settings'].setdefault('service_mode', 'manual')
+    controls['settings'].setdefault('manual_running', False)
     controls['settings'].setdefault('join_oldest_rallies_first', False)
     controls['settings'].setdefault('selected_presets', {"presets": {}})
     controls['settings'].setdefault('auto_use_stamina', {"enabled": False, "option": None})

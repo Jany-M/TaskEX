@@ -174,6 +174,15 @@ def get_join_rally_controls(main_window, index):
     # Join Oldest Rallies First Checkbox
     join_oldest_rallies_checkbox = getattr(main_window.widgets, f"jr_join_oldest_rallies_first___{index}")
     settings['join_oldest_rallies_first'] = join_oldest_rallies_checkbox.isChecked()
+
+    jr_enabled = getattr(main_window.widgets, f"jr_enabled___{index}", None)
+    jr_mode_combo = getattr(main_window.widgets, f"jr_service_mode___{index}", None)
+    jr_manual_btn = getattr(main_window.widgets, f"jr_manual_running___{index}", None)
+
+    settings["enabled"] = bool(jr_enabled.isChecked()) if jr_enabled else True
+    settings["service_mode"] = jr_mode_combo.currentData() if jr_mode_combo else "manual"
+    settings["manual_running"] = bool(jr_manual_btn.isChecked()) if jr_manual_btn else False
+
     # combine the dict to return the values
     join_rally_controls = {
         "data": levels,
@@ -191,6 +200,8 @@ def get_game_settings_controls(main_window,index):
 
 def get_auto_bubble_controls(main_window, index):
     enabled_group = getattr(main_window.widgets, f"ab_enabled___{index}", None)
+    service_mode_combo = getattr(main_window.widgets, f"ab_service_mode___{index}", None)
+    manual_btn = getattr(main_window.widgets, f"ab_manual_running___{index}", None)
     bubble_type_combo = getattr(main_window.widgets, f"ab_bubble_type___{index}", None)
     trigger_spinbox = getattr(main_window.widgets, f"ab_trigger_minutes___{index}", None)
     prioritize_checkbox = getattr(main_window.widgets, f"ab_prioritize_existing___{index}", None)
@@ -198,6 +209,8 @@ def get_auto_bubble_controls(main_window, index):
 
     return {
         "enabled": bool(enabled_group.isChecked()) if enabled_group else False,
+        "service_mode": service_mode_combo.currentData() if service_mode_combo else "auto",
+        "manual_running": bool(manual_btn.isChecked()) if manual_btn else False,
         "bubble_type_id": bubble_type_combo.currentData() if bubble_type_combo else None,
         "bubble_type_name": bubble_type_combo.currentText() if bubble_type_combo else None,
         "trigger_minutes": int(trigger_spinbox.value()) if trigger_spinbox else 60,
@@ -208,6 +221,8 @@ def get_auto_bubble_controls(main_window, index):
 
 def get_auto_gather_controls(main_window, index):
     enabled_group = getattr(main_window.widgets, f"ag_enabled___{index}", None)
+    service_mode_combo = getattr(main_window.widgets, f"ag_service_mode___{index}", None)
+    manual_btn = getattr(main_window.widgets, f"ag_manual_running___{index}", None)
     resources_combo = getattr(main_window.widgets, f"ag_resources___{index}", None)
     min_level_spinbox = getattr(main_window.widgets, f"ag_min_level___{index}", None)
     max_level_spinbox = getattr(main_window.widgets, f"ag_max_level___{index}", None)
@@ -223,6 +238,8 @@ def get_auto_gather_controls(main_window, index):
 
     return {
         "enabled": bool(enabled_group.isChecked()) if enabled_group else False,
+        "service_mode": service_mode_combo.currentData() if service_mode_combo else "manual",
+        "manual_running": bool(manual_btn.isChecked()) if manual_btn else False,
         "resource_type_ids": selected_resource_ids,
         "resource_type_names": [resources_combo.itemText(i) for i in resources_combo.checkedIndices()] if resources_combo else [],
         "min_level": int(min_level_spinbox.value()) if min_level_spinbox else 1,

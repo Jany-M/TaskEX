@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QFrame, QVBoxLayout, QPushButton
+from PySide6.QtWidgets import QCheckBox, QFrame, QVBoxLayout, QPushButton, QHBoxLayout, QLabel, QComboBox
 from core.custom_widgets.FlowLayout import FlowLayout
 from core.custom_widgets.QCheckComboBox import QCheckComboBox
 from core.services.bm_monsters_service import fetch_boss_monster_data
@@ -11,6 +11,8 @@ from gui.widgets.PresetConfigDialog import PresetConfigDialog
 
 
 def load_join_rally_ui(instance_ui,main_window,index):
+
+    _add_join_rally_runtime_controls(instance_ui)
 
     # For Logic 1
     jr_monster_list1_frame = getattr(instance_ui, "jr_monster_list1_frame_")
@@ -92,6 +94,56 @@ def load_join_rally_ui(instance_ui,main_window,index):
 
     # Connect boost march speed config button
     march_speed_configure_btn.clicked.connect(lambda: open_march_speed_config_settings(march_speed_configure_btn,main_window, index))
+
+
+def _add_join_rally_runtime_controls(instance_ui):
+    tab = getattr(instance_ui, "join_rally_tab_", None)
+    if tab is None or tab.layout() is None:
+        return
+
+    runtime_frame = QFrame(tab)
+    runtime_layout = QHBoxLayout(runtime_frame)
+    runtime_layout.setContentsMargins(0, 0, 0, 8)
+
+    enabled_cb = QCheckBox("Enable Join Rally")
+    enabled_cb.setObjectName("jr_enabled___")
+    enabled_cb.setChecked(True)
+    setattr(instance_ui, enabled_cb.objectName(), enabled_cb)
+    runtime_layout.addWidget(enabled_cb)
+
+    runtime_layout.addWidget(QLabel("Service Mode:"))
+
+    mode_combo = QComboBox(runtime_frame)
+    mode_combo.setObjectName("jr_service_mode___")
+    mode_combo.addItem("Auto-run always", "auto")
+    mode_combo.addItem("Manual start/stop", "manual")
+    mode_combo.addItem("Auto-run off", "off")
+    mode_combo.setCurrentIndex(1)  # default manual for rallies
+    setattr(instance_ui, mode_combo.objectName(), mode_combo)
+    runtime_layout.addWidget(mode_combo)
+
+    manual_btn = QPushButton("Start", runtime_frame)
+    manual_btn.setObjectName("jr_manual_running___")
+    manual_btn.setCheckable(True)
+    manual_btn.setChecked(False)
+    manual_btn.setProperty("type", "checkable")
+    setattr(instance_ui, manual_btn.objectName(), manual_btn)
+
+    def _sync_manual_state():
+        mode = mode_combo.currentData()
+        is_manual = mode == "manual"
+        if not is_manual:
+            manual_btn.setChecked(False)
+        manual_btn.setEnabled(is_manual)
+
+    manual_btn.toggled.connect(lambda checked: manual_btn.setText("Stop" if checked else "Start"))
+    mode_combo.currentIndexChanged.connect(lambda _: _sync_manual_state())
+    _sync_manual_state()
+
+    runtime_layout.addWidget(manual_btn)
+    runtime_layout.addStretch()
+
+    tab.layout().insertWidget(0, runtime_frame)
 
 def on_button_toggled(button, buttons):
     # Perform the check only if the march preset button is being unchecked

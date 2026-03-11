@@ -222,6 +222,16 @@ class EmulatorThread(QThread):
         """
         Runs all enabled features in a single orchestrator loop.
         """
+        def _should_run(feature, default_mode="off"):
+            if not feature.get('enabled', False):
+                return False
+            mode = feature.get('service_mode', default_mode)
+            if mode == 'auto':
+                return True
+            if mode == 'manual':
+                return bool(feature.get('manual_running', False))
+            return False
+
         while self.thread_status():
             try:
                 feature_controls = get_all_feature_controls(self.main_window, self.index)
@@ -229,15 +239,15 @@ class EmulatorThread(QThread):
                 auto_bubble = feature_controls.get('auto_bubble', {})
                 auto_gather = feature_controls.get('auto_gather', {})
                 join_rally = feature_controls.get('join_rally', {})
+                join_rally_settings = join_rally.get('settings', {})
 
-                if auto_bubble.get('enabled', False):
+                if _should_run(auto_bubble, default_mode='auto'):
                     run_auto_bubble_check(self)
 
-                if auto_gather.get('enabled', False):
+                if _should_run(auto_gather, default_mode='manual'):
                     run_auto_gather_cycle(self)
 
-                # Join Rally has no explicit enabled toggle yet; run only when any data exists.
-                if join_rally.get('data'):
+                if _should_run(join_rally_settings, default_mode='manual') and join_rally.get('data'):
                     run_join_rally_scan_pass(self)
 
                 time.sleep(1)

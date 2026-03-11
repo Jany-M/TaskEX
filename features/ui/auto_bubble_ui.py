@@ -19,7 +19,7 @@ def load_auto_bubble_ui(instance_ui, main_window, index):
     # ── Auto-Bubble checkable group box ──────────────────────────────────────
     bubble_group = QGroupBox("Auto-Bubble")
     bubble_group.setCheckable(True)
-    bubble_group.setChecked(False)
+    bubble_group.setChecked(True)
     bubble_group.setObjectName("ab_enabled___")
     setattr(instance_ui, bubble_group.objectName(), bubble_group)
 
@@ -27,6 +27,37 @@ def load_auto_bubble_ui(instance_ui, main_window, index):
     bubble_group.setLayout(inner)
 
     # Bubble type combobox
+    mode_row = QHBoxLayout()
+    mode_row.addWidget(QLabel("Service mode:"))
+    service_mode_combo = QComboBox()
+    service_mode_combo.setObjectName("ab_service_mode___")
+    service_mode_combo.addItem("Auto-run always", "auto")
+    service_mode_combo.addItem("Manual start/stop", "manual")
+    service_mode_combo.addItem("Auto-run off", "off")
+    service_mode_combo.setCurrentIndex(0)  # bubble defaults to auto-enabled
+    setattr(instance_ui, service_mode_combo.objectName(), service_mode_combo)
+    mode_row.addWidget(service_mode_combo)
+
+    manual_btn = QPushButton("Start")
+    manual_btn.setObjectName("ab_manual_running___")
+    manual_btn.setCheckable(True)
+    manual_btn.setProperty("type", "checkable")
+    setattr(instance_ui, manual_btn.objectName(), manual_btn)
+
+    def _sync_manual_state():
+        is_manual = service_mode_combo.currentData() == "manual"
+        if not is_manual:
+            manual_btn.setChecked(False)
+        manual_btn.setEnabled(is_manual)
+
+    manual_btn.toggled.connect(lambda checked: manual_btn.setText("Stop" if checked else "Start"))
+    service_mode_combo.currentIndexChanged.connect(lambda _: _sync_manual_state())
+    _sync_manual_state()
+
+    mode_row.addWidget(manual_btn)
+    mode_row.addStretch()
+    inner.addLayout(mode_row)
+
     type_row = QHBoxLayout()
     type_row.addWidget(QLabel("Bubble type:"))
     bubble_type_combo = QComboBox()

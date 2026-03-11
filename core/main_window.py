@@ -1,6 +1,7 @@
 import logging
 
 from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QShortcut, QKeySequence
 from PySide6.QtWidgets import QMainWindow, QScrollArea, QFrame
 
 from config.settings import TITLE, TITLE_DESCRIPTION, CREDITS, VERSION
@@ -147,6 +148,13 @@ class MainWindow(QMainWindow):
         self.widgets.scan_generals_btn.clicked.connect(lambda : handle_scan_general_button(self))
         self.scan_general_console.connect(lambda message: update_scan_console(self,message))
 
+        # Global template manager shortcuts
+        self.shortcut_bubble_templates = QShortcut(QKeySequence("Ctrl+Shift+B"), self)
+        self.shortcut_bubble_templates.activated.connect(self.open_bubble_template_dialog)
+
+        self.shortcut_resource_templates = QShortcut(QKeySequence("Ctrl+Shift+G"), self)
+        self.shortcut_resource_templates.activated.connect(self.open_resource_template_dialog)
+
 
     def init_adb(self):
 
@@ -188,6 +196,16 @@ class MainWindow(QMainWindow):
 
         # Setup Pytesseract
         setup_tesseract()
+
+    def open_bubble_template_dialog(self):
+        from gui.widgets.BubbleConfigDialog import BubbleConfigDialog
+        dlg = BubbleConfigDialog(self)
+        dlg.exec()
+
+    def open_resource_template_dialog(self):
+        from gui.widgets.ResourceConfigDialog import ResourceConfigDialog
+        dlg = ResourceConfigDialog(self)
+        dlg.exec()
 
 
     def load_step(self, splash_screen, message, function, index):

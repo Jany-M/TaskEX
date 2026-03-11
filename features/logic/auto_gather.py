@@ -37,7 +37,15 @@ def _count_active_gather_marches(thread):
 
         from utils.image_recognition_utils import template_match_coordinates_all
         matches = template_match_coordinates_all(src_img, icon, threshold=0.80)
-        return len(matches)
+        if not matches:
+            return 0
+
+        # De-duplicate nearby detections from noisy template matches.
+        deduped = []
+        for x, y in matches:
+            if all(abs(x - dx) > 18 or abs(y - dy) > 18 for dx, dy in deduped):
+                deduped.append((x, y))
+        return min(len(deduped), 4)
     except Exception:
         return 0
 
@@ -74,10 +82,20 @@ def run_auto_gather_cycle(thread):
             return False
 
         resource_type_ids = controls.get('resource_type_ids', [])
+        if not resource_type_ids:
+            thread.log_message("[Auto-Gather] No resource types selected.", "warning", force_console=False)
+            return False
+
         min_level = controls.get('min_level', 1)
         max_level = controls.get('max_level', 0)
 
         tiles = scan_resource_tiles_on_map(thread, resource_type_ids, min_level, max_level)
+        if not tiles:
+            # Small pan then one retry improves reliability when map labels overlap tiles.
+            thread.adb_manager.swipe(480, 420, 620, 420, 350)
+            time.sleep(0.7)
+            tiles = scan_resource_tiles_on_map(thread, resource_type_ids, min_level, max_level)
+
         thread.log_message(
             f"[Auto-Gather] Found {len(tiles)} candidate tile(s).",
             "info", force_console=True,

@@ -328,6 +328,7 @@ def scan_resource_tiles_on_map(thread, resource_type_ids, min_level, max_level):
         return []
 
     found = []
+    seen = set()
     for resource_type_id in resource_type_ids:
         templates = get_tile_templates_for_resource(resource_type_id, min_level=min_level, max_level=max_level)
         for template in templates:
@@ -336,6 +337,10 @@ def scan_resource_tiles_on_map(thread, resource_type_ids, min_level, max_level):
                 continue
             matches = template_match_coordinates_all(src_img, tpl, threshold=template.img_threshold or 0.85)
             for x, y in matches:
+                key = (int(x / 18), int(y / 18), resource_type_id)
+                if key in seen:
+                    continue
+                seen.add(key)
                 found.append({
                     'x': x,
                     'y': y,
@@ -362,16 +367,20 @@ def send_gather_march(thread, tile_coords, gather_controls):
             _nav_log(thread, "Missing gather button templates.", "warning")
             return False
 
-        thread.adb_manager.tap(x, y)
-        time.sleep(0.8)
-
-        src_img = thread.capture_and_validate_screen(ads=False)
-        gather_match = template_match_coordinates(src_img, gather_btn, threshold=0.80)
+        # Retry tile opening with nearby taps when the popup does not appear immediately.
+        gather_match = None
+        for tx, ty in [(x, y), (x + 12, y), (x - 12, y), (x, y + 12), (x, y - 12)]:
+            thread.adb_manager.tap(tx, ty)
+            time.sleep(0.65)
+            src_img = thread.capture_and_validate_screen(ads=False)
+            gather_match = template_match_coordinates(src_img, gather_btn, threshold=0.80)
+            if gather_match:
+                break
         if not gather_match:
             return False
 
         thread.adb_manager.tap(gather_match[0], gather_match[1])
-        time.sleep(1)
+        time.sleep(0.9)
 
         src_img = thread.capture_and_validate_screen(ads=False)
         confirm_match = template_match_coordinates(src_img, march_confirm_btn, threshold=0.80)
@@ -379,8 +388,12 @@ def send_gather_march(thread, tile_coords, gather_controls):
             return False
 
         thread.adb_manager.tap(confirm_match[0], confirm_match[1])
-        time.sleep(1)
-        return True
+        time.sleep(1.0)
+
+        # Best-effort verification: confirm button should disappear after dispatch.
+        post_img = thread.capture_and_validate_screen(ads=False)
+        still_confirm = template_match_coordinates(post_img, march_confirm_btn, threshold=0.80)
+        return not bool(still_confirm)
     except Exception as e:
         _nav_log(thread, f"send_gather_march error: {e}", "warning")
         return False
