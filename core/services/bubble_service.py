@@ -2,6 +2,19 @@ from db.db_setup import get_session
 from db.models import BubbleType
 
 
+BUBBLE_DISPLAY_NAMES = {
+    1: "8 Hour Truce Agreement",
+    2: "24 Hour Truce Agreement",
+    3: "3 Day Truce Agreement",
+    4: "7 Day Truce Agreement",
+}
+
+
+def get_bubble_display_name(bubble_or_id):
+    bubble_id = bubble_or_id.id if hasattr(bubble_or_id, 'id') else bubble_or_id
+    return BUBBLE_DISPLAY_NAMES.get(bubble_id, getattr(bubble_or_id, 'name', str(bubble_or_id)))
+
+
 def get_all_bubble_types():
     """Return all four seeded bubble types ordered by id."""
     session = get_session()

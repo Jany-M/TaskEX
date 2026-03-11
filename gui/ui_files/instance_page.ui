@@ -2133,14 +2133,14 @@ QPushButton:checked {
        </item>
       </layout>
      </widget>
-     <widget class="QWidget" name="monster_setter_tab_">
-      <attribute name="title">
-       <string>Monster Setter</string>
-      </attribute>
-     </widget>
      <widget class="QWidget" name="resource_gathering_tab_">
       <attribute name="title">
        <string>Resource Gathering</string>
+      </attribute>
+     </widget>
+     <widget class="QWidget" name="monster_setter_tab_">
+      <attribute name="title">
+       <string>Monster Setter</string>
       </attribute>
      </widget>
      <widget class="QWidget" name="world_map_scan_tab_">

@@ -4,12 +4,12 @@ from PySide6.QtWidgets import (
     QLabel, QSpinBox, QComboBox, QPushButton,
 )
 
-from core.services.bubble_service import get_all_bubble_types
+from core.services.bubble_service import get_all_bubble_types, get_bubble_display_name
 
 
 def load_auto_bubble_ui(instance_ui, main_window, index):
-    """Populate the more_activities_tab_ with auto-bubble controls."""
-    tab_widget = getattr(instance_ui, 'more_activities_tab_', None)
+    """Populate the general_tab_ with auto-bubble controls."""
+    tab_widget = getattr(instance_ui, 'general_tab_', None)
     if tab_widget is None:
         return
 
@@ -64,7 +64,7 @@ def load_auto_bubble_ui(instance_ui, main_window, index):
     bubble_type_combo.setObjectName("ab_bubble_type___")
     try:
         for bt in get_all_bubble_types():
-            bubble_type_combo.addItem(bt.name, bt.id)
+            bubble_type_combo.addItem(get_bubble_display_name(bt), bt.id)
     except Exception:
         pass
     setattr(instance_ui, bubble_type_combo.objectName(), bubble_type_combo)
@@ -97,17 +97,7 @@ def load_auto_bubble_ui(instance_ui, main_window, index):
     setattr(instance_ui, gem_cb.objectName(), gem_cb)
     inner.addWidget(gem_cb)
 
-    # Configure templates button
-    configure_btn = QPushButton("Configure Bubble Templates…")
-    configure_btn.setObjectName("ab_configure_btn___")
-    configure_btn.clicked.connect(lambda: _open_bubble_config(main_window))
-    inner.addWidget(configure_btn)
+    # Note: Bubble template configuration is now handled app-wide in Bot Manager > Bubbles tab
 
     outer_layout.addWidget(bubble_group)
     outer_layout.addStretch()
-
-
-def _open_bubble_config(main_window):
-    from gui.widgets.BubbleConfigDialog import BubbleConfigDialog
-    dlg = BubbleConfigDialog(main_window)
-    dlg.exec()

@@ -13,6 +13,7 @@ from core.ui_functions import UIFunctions
 from db.db_setup import init_db, get_session
 from db.models import Instance
 from gui.controllers.bm_blackmarket_controller import init_bm_blackmarket_ui
+from gui.controllers.bm_bubbles_controller import init_bm_bubbles_ui
 from gui.controllers.bm_monsters_controller import init_bm_monster_ui
 from gui.controllers.bm_scan_generals_controller import init_scan_general_ui, update_scan_console
 from gui.generated.ui_main import Ui_MainWindow
@@ -104,6 +105,9 @@ class MainWindow(QMainWindow):
 
         # Setup BM BlackMarket UI
         init_bm_blackmarket_ui(self)
+
+        # Setup BM Bubbles UI
+        init_bm_bubbles_ui(self)
 
 
         # TOGGLE MENU

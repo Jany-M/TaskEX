@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'main.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.8.1
+## Created by: Qt User Interface Compiler version 6.10.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -1510,6 +1510,44 @@ class Ui_MainWindow(object):
         self.horizontalLayout_8.addWidget(self.frame_5)
 
         self.tabWidget.addTab(self.champions, "")
+        self.bubbles = QWidget()
+        self.bubbles.setObjectName(u"bubbles")
+        self.verticalLayout_24 = QVBoxLayout(self.bubbles)
+        self.verticalLayout_24.setObjectName(u"verticalLayout_24")
+        self.frame_7 = QFrame(self.bubbles)
+        self.frame_7.setObjectName(u"frame_7")
+        self.frame_7.setFrameShape(QFrame.Shape.NoFrame)
+        self.frame_7.setFrameShadow(QFrame.Shadow.Raised)
+        self.verticalLayout_25 = QVBoxLayout(self.frame_7)
+        self.verticalLayout_25.setObjectName(u"verticalLayout_25")
+        self.verticalLayout_25.setContentsMargins(0, 0, 0, 0)
+        self.bm_bubbles_scroll_area = QScrollArea(self.frame_7)
+        self.bm_bubbles_scroll_area.setObjectName(u"bm_bubbles_scroll_area")
+        self.bm_bubbles_scroll_area.setStyleSheet(u"#bm_bubbles_scroll_area{\n"
+"	border: 1px solid  rgb(255, 121, 198); border-radius: 5px;margin-top: 0.2em \n"
+"}")
+        self.bm_bubbles_scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.bm_bubbles_scroll_area.setWidgetResizable(True)
+        self.scrollAreaWidgetContents_5 = QWidget()
+        self.scrollAreaWidgetContents_5.setObjectName(u"scrollAreaWidgetContents_5")
+        self.scrollAreaWidgetContents_5.setGeometry(QRect(0, 0, 966, 513))
+        self.horizontalLayout_19 = QHBoxLayout(self.scrollAreaWidgetContents_5)
+        self.horizontalLayout_19.setObjectName(u"horizontalLayout_19")
+        self.horizontalLayout_19.setContentsMargins(11, 11, 11, 11)
+        self.bubbles_list_frame = QFrame(self.scrollAreaWidgetContents_5)
+        self.bubbles_list_frame.setObjectName(u"bubbles_list_frame")
+        self.bubbles_list_frame.setFrameShape(QFrame.Shape.NoFrame)
+        self.bubbles_list_frame.setFrameShadow(QFrame.Shadow.Raised)
+
+        self.horizontalLayout_19.addWidget(self.bubbles_list_frame)
+
+        self.bm_bubbles_scroll_area.setWidget(self.scrollAreaWidgetContents_5)
+
+        self.verticalLayout_25.addWidget(self.bm_bubbles_scroll_area)
+
+        self.verticalLayout_24.addWidget(self.frame_7)
+
+        self.tabWidget.addTab(self.bubbles, "")
 
         self.verticalLayout_20.addWidget(self.tabWidget)
 
@@ -1801,6 +1839,7 @@ class Ui_MainWindow(object):
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.monsters), QCoreApplication.translate("MainWindow", u"Monsters", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.black_market), QCoreApplication.translate("MainWindow", u"Black Market", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.champions), QCoreApplication.translate("MainWindow", u"Champions", None))
+        self.tabWidget.setTabText(self.tabWidget.indexOf(self.bubbles), QCoreApplication.translate("MainWindow", u"Bubbles", None))
         self.btn_screen_settings.setText(QCoreApplication.translate("MainWindow", u"Screen Settings", None))
         self.label.setText(QCoreApplication.translate("MainWindow", u"Screen DPI", None))
         self.label_4.setText(QCoreApplication.translate("MainWindow", u"Restart to apply DPI settings!", None))

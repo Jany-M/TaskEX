@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QAbstractScrollArea, QAbstract
     QLineEdit, QPushButton, QScrollArea, QSizePolicy,
     QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QTimeEdit, QVBoxLayout, QWidget)
-from resources import resources_rc
+import resources_rc
 
 class Ui_InstancePage(object):
     def setupUi(self, InstancePage):
