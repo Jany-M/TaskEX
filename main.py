@@ -4,10 +4,17 @@ import threading
 import re
 import io
 import logging
+import argparse
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, List
 
 from config.settings import get_debug_mode
+
+
+def _is_cli_invocation(argv: list[str]) -> bool:
+    cli_flags = {"--list-instances", "--start-instance", "--stop-instance"}
+    return any(arg in cli_flags for arg in argv)
 
 
 def _enforce_qt_imageio_suppression():
@@ -199,21 +206,141 @@ def _setup_runtime_logging():
 
 
 _enforce_qt_imageio_suppression()
-_install_stderr_filter()
-_install_stdout_filter(aggressive=not get_debug_mode())
+if not _is_cli_invocation(sys.argv[1:]):
+    _install_stderr_filter()
+    _install_stdout_filter(aggressive=not get_debug_mode())
 
 if not get_debug_mode():
     os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+def _load_instances_from_db() -> List[dict]:
+    from db.db_setup import get_session, init_db
+    from db.models.instance import Instance
 
-from PySide6.QtGui import QIcon
+    init_db()
+    session = get_session()
+    try:
+        rows = session.query(Instance).order_by(Instance.id.asc()).all()
+        return [
+            {
+                "id": row.id,
+                "name": (row.emulator_name or "").strip(),
+                "port": row.emulator_port,
+                "profile_id": row.profile_id,
+            }
+            for row in rows
+        ]
+    finally:
+        session.close()
 
-from core.main_window import MainWindow
-from core.splash_screen import SplashScreen
+
+def _resolve_instance(identifier: str) -> Optional[dict]:
+    instances = _load_instances_from_db()
+    key = (identifier or "").strip()
+    if not key:
+        return None
+
+    numeric_value: Optional[int] = None
+    if key.isdigit():
+        numeric_value = int(key)
+
+    if numeric_value is not None:
+        by_id = next((item for item in instances if item["id"] == numeric_value), None)
+        if by_id:
+            return by_id
+
+        by_port = next((item for item in instances if item["port"] == numeric_value), None)
+        if by_port:
+            return by_port
+
+    key_lower = key.lower()
+    by_name_exact = next((item for item in instances if item["name"].lower() == key_lower), None)
+    if by_name_exact:
+        return by_name_exact
+
+    by_name_partial = [item for item in instances if key_lower in item["name"].lower()]
+    if len(by_name_partial) == 1:
+        return by_name_partial[0]
+
+    return None
+
+
+def _cli_list_instances() -> int:
+    instances = _load_instances_from_db()
+    if not instances:
+        print("No registered instances found in database.")
+        return 0
+
+    print("Registered TaskEX instances:")
+    print("ID\tName\tPort\tProfile")
+    for item in instances:
+        print(f"{item['id']}\t{item['name'] or '-'}\t{item['port'] or '-'}\t{item['profile_id'] or '-'}")
+    return 0
+
+
+def _cli_control_instance(identifier: str, start: bool) -> int:
+    from utils.adb_manager import ADBManager
+
+    instance = _resolve_instance(identifier)
+    if not instance:
+        print(f"Instance not found for identifier: {identifier}")
+        print("Use --list-instances to see valid names, ids, and ports.")
+        return 2
+
+    port = instance.get("port")
+    if not port:
+        print(f"Instance '{instance.get('name') or instance.get('id')}' has no port configured.")
+        return 2
+
+    try:
+        ADBManager.initialize_adb()
+        manager = ADBManager(str(port))
+        if not manager.device:
+            print(f"Could not connect to emulator on port {port}.")
+            return 3
+
+        manager.launch_evony(start=start)
+        state = "started" if start else "stopped"
+        print(f"Evony {state} on instance '{instance.get('name') or instance.get('id')}' (port {port}).")
+        return 0
+    except Exception as exc:
+        print(f"Failed to control instance '{identifier}': {exc}")
+        return 4
+
+
+def _run_cli_if_requested(argv: List[str]) -> Optional[int]:
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("--list-instances", action="store_true", help="List registered emulator instances from DB")
+    parser.add_argument("--start-instance", type=str, help="Start Evony on instance by id, name, or port")
+    parser.add_argument("--stop-instance", type=str, help="Stop Evony on instance by id, name, or port")
+
+    args, _unknown = parser.parse_known_args(argv)
+
+    if args.list_instances:
+        return _cli_list_instances()
+
+    if args.start_instance and args.stop_instance:
+        print("Use either --start-instance or --stop-instance, not both.")
+        return 2
+
+    if args.start_instance:
+        return _cli_control_instance(args.start_instance, start=True)
+
+    if args.stop_instance:
+        return _cli_control_instance(args.stop_instance, start=False)
+
+    return None
 
 if __name__ == "__main__":
+    cli_exit_code = _run_cli_if_requested(sys.argv[1:])
+    if cli_exit_code is not None:
+        sys.exit(cli_exit_code)
+
+    from PySide6.QtWidgets import QApplication
+    from PySide6.QtGui import QIcon
+    from core.main_window import MainWindow
+    from core.splash_screen import SplashScreen
+
     runtime_logger, runtime_log_file = _setup_runtime_logging()
     runtime_logger.info("Starting TaskEnforcerX")
 

@@ -18,6 +18,8 @@ export interface TaskExConfig {
   logRetentionLines: number;
   coordinateScaleX: number;
   coordinateScaleY: number;
+  taskexRootPath: string;
+  taskexPythonPath: string;
 }
 
 const DEFAULT_CONFIG: TaskExConfig = {
@@ -29,7 +31,9 @@ const DEFAULT_CONFIG: TaskExConfig = {
   screenStateTimeout: 10000,
   logRetentionLines: 100,
   coordinateScaleX: 1.0,
-  coordinateScaleY: 1.0
+  coordinateScaleY: 1.0,
+  taskexRootPath: "",
+  taskexPythonPath: ""
 };
 
 export function loadConfig(): TaskExConfig {
@@ -58,6 +62,8 @@ export function loadConfig(): TaskExConfig {
   }
   if (process.env.TASKEX_EVONY_PACKAGE) config.evonyPackage = process.env.TASKEX_EVONY_PACKAGE;
   if (process.env.TASKEX_EVONY_ACTIVITY) config.evonyActivity = process.env.TASKEX_EVONY_ACTIVITY;
+  if (process.env.TASKEX_ROOT_PATH) config.taskexRootPath = process.env.TASKEX_ROOT_PATH;
+  if (process.env.TASKEX_PYTHON_PATH) config.taskexPythonPath = process.env.TASKEX_PYTHON_PATH;
 
   return config;
 }

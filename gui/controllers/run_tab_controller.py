@@ -895,19 +895,25 @@ def load_profile_controls(main_window, index,profile_id):
     :param index: The index of the profile page to load controls for.
     :param profile_id: profile id to load the controls
     """
+    if not hasattr(main_window, "pending_profile_ids"):
+        main_window.pending_profile_ids = {}
+    main_window.pending_profile_ids[index] = profile_id
+
     # Create the worker
     worker = ProfileLoadWorker(profile_id)
     # Store the ref in main_window to keep the worker alive
     main_window.worker_refs[index] = worker
     # Connect signals to slots
-    worker.signals.profile_loaded.connect(lambda settings: on_profile_loaded(settings, main_window, index))
+    worker.signals.profile_loaded.connect(
+        lambda loaded_profile_id, settings: on_profile_loaded(loaded_profile_id, settings, main_window, index)
+    )
     worker.signals.error.connect(lambda error: print(f"Error: {error}"))
 
     # Run the worker using QThreadPool
     QThreadPool.globalInstance().start(worker)
 
 
-def on_profile_loaded(settings, main_window, index):
+def on_profile_loaded(loaded_profile_id, settings, main_window, index):
     """
     Update the main window with the loaded profile settings.
 
@@ -915,6 +921,11 @@ def on_profile_loaded(settings, main_window, index):
     :param main_window: The main application window containing widgets.
     :param index: The index of the profile page to load controls for.
     """
+    expected_profile_id = getattr(main_window, "pending_profile_ids", {}).get(index)
+    if expected_profile_id != loaded_profile_id:
+        # Ignore stale async results when user changes profile quickly.
+        return
+
     # print(index, settings)
 
     page_emu = getattr(main_window.widgets, f"page_emu_{index}", None)

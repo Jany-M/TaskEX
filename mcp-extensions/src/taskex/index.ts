@@ -13,6 +13,7 @@ import { registerEvonyControl } from "./tools/evony-app";
 import { registerKeyEvent } from "./tools/keyevent";
 import { registerWaitForScreen } from "./tools/wait-for-screen";
 import { registerDebugBundle } from "./tools/debug-bundle";
+import { registerListInstances, registerInstanceControl } from "./tools/instance-control";
 
 export class TaskExExtension extends Extension {
   readonly name = "TaskEX";
@@ -28,6 +29,8 @@ export class TaskExExtension extends Extension {
     await registerKeyEvent(server);
     await registerWaitForScreen(server);
     await registerDebugBundle(server);
+    await registerListInstances(server);
+    await registerInstanceControl(server);
 
     console.error("[TaskEX Extension] All TaskEX tools registered successfully");
   }

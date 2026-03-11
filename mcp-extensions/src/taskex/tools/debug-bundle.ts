@@ -1,11 +1,16 @@
 import { z } from "zod";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { readFile, unlink } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import { getConfig } from "../config";
 import { McpServerInterface } from "../../extension";
 import { ADB_BINARY } from "../utils";
 
 const execFilePromise = promisify(execFile);
+const readFilePromise = promisify(readFile);
+const unlinkPromise = promisify(unlink);
 
 const DebugBundleSchema = z.object({
   device: z.string().optional(),
@@ -46,9 +51,26 @@ export async function registerDebugBundle(server: McpServerInterface): Promise<v
 
         if (includeUiDump) {
           try {
-            const result = await execFilePromise(ADB_BINARY, [...deviceArgs, "shell", "dumpsys", "window", "dump"],
-              { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
-            bundle.uiHierarchy = ((result.stdout as string) || "").substring(0, 50000);
+            const remoteUiDumpPath = "/sdcard/taskex-window_dump.xml";
+            const localUiDumpPath = join(tmpdir(), `taskex-window-dump-${Date.now()}.xml`);
+
+            await execFilePromise(ADB_BINARY, [...deviceArgs, "shell", "uiautomator", "dump", remoteUiDumpPath]);
+            await execFilePromise(ADB_BINARY, [...deviceArgs, "pull", remoteUiDumpPath, localUiDumpPath]);
+
+            const xmlData = await readFilePromise(localUiDumpPath, { encoding: "utf8" });
+            bundle.uiHierarchy = xmlData.substring(0, 50000);
+
+            try {
+              await execFilePromise(ADB_BINARY, [...deviceArgs, "shell", "rm", remoteUiDumpPath]);
+            } catch (_) {
+              // Ignore remote cleanup failure
+            }
+
+            try {
+              await unlinkPromise(localUiDumpPath);
+            } catch (_) {
+              // Ignore local cleanup failure
+            }
           } catch (e) { bundle.uiHierarchyError = String(e); }
         }
 

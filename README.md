@@ -119,6 +119,44 @@ pyside6-uic gui/ui_files/splash_screen.ui -o gui/generated/splash_screen.py
 pyside6-rcc resources/resources.qrc -o resources/resources_rc.py
 ```
 
+## CLI Instance Control
+
+TaskEX now supports command-line control of DB-registered emulator instances without opening the UI.
+
+### List registered instances
+
+```powershell
+python main.py --list-instances
+```
+
+Example output:
+
+```text
+Registered TaskEX instances:
+ID      Name    Port    Profile
+3       Ant     5555    1
+4       Kari    5585    1
+5       Ant Alt 5575    2
+```
+
+### Start Evony for an existing instance
+
+You can target by name, id, or port:
+
+```powershell
+python main.py --start-instance "Ant Alt"
+python main.py --start-instance 5
+python main.py --start-instance 5575
+```
+
+### Stop Evony for an existing instance
+
+```powershell
+python main.py --stop-instance "Ant Alt"
+python main.py --stop-instance 5
+python main.py --stop-instance 5575
+```
+
 ## MCP Development Setup (AI-Assisted Development)
 
 TaskEnforcerX includes an MCP (Model Context Protocol) extension package that lets AI assistants like GitHub Copilot, Cursor or Claude interact directly with connected Android devices during development. This enables you to collaboratively develop new bot features with an AI that can see screenshots, tap the screen, read logs, and inspect the UI hierarchy in real time.
@@ -224,6 +262,43 @@ Once loaded, the following tools are available to the AI assistant:
 | `taskex_wait_for_screen` | Wait for text to appear or disappear on screen |
 | `taskex_evony_control` | Start/stop the Evony app |
 | `taskex_debug_bundle` | Collect device info, logcat, UI hierarchy in one JSON bundle |
+| `taskex_list_instances` | List DB-registered TaskEX instances (ID, name, port, profile) |
+| `taskex_instance_control` | Start/stop instance by identifier, id, port, or name |
+
+### Instance MCP Examples
+
+List instances from DB:
+
+```json
+{
+  "tool": "taskex_list_instances",
+  "args": {}
+}
+```
+
+Start by name:
+
+```json
+{
+  "tool": "taskex_instance_control",
+  "args": {
+    "action": "start",
+    "name": "Ant Alt"
+  }
+}
+```
+
+Stop by port:
+
+```json
+{
+  "tool": "taskex_instance_control",
+  "args": {
+    "action": "stop",
+    "port": 5575
+  }
+}
+```
 
 ### Configuration Reference
 
@@ -238,8 +313,12 @@ All settings can be set in `taskex.config.json` or overridden via environment va
 | `screenStateTimeout` | — | `10000` | ms to wait in wait_for_screen |
 | `logRetentionLines` | — | `100` | Logcat lines in debug bundle |
 | `coordinateScaleX/Y` | — | `1.0` | Coordinate scaling factors |
+| `taskexRootPath` | `TASKEX_ROOT_PATH` | auto | Optional absolute TaskEX root for instance MCP tools |
+| `taskexPythonPath` | `TASKEX_PYTHON_PATH` | `<taskexRootPath>/.venv/Scripts/python.exe` | Optional Python path used by instance MCP tools |
 
 Config file path: `TASKEX_CONFIG_PATH` env var (defaults to `./taskex.config.json` relative to where adb-mcp is launched).
+
+The new instance tools call TaskEX CLI under the hood (`main.py --list-instances`, `--start-instance`, `--stop-instance`), so they work with DB-registered instances by name, id, or port without opening the TaskEX UI.
 
 ### Development Workflow
 

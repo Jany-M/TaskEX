@@ -8,6 +8,8 @@
   "logRetentionLines": 100,
   "coordinateScaleX": 1.0,
   "coordinateScaleY": 1.0,
+  "taskexRootPath": "",
+  "taskexPythonPath": "",
   "_comments": {
     "blueStacksPorts": "List of ports where BlueStacks instances are running",
     "evonyPackage": "Android package name for Evony app",
@@ -17,6 +19,8 @@
     "screenStateTimeout": "Max time (ms) to wait for screen state changes (wait_for_screen tool)",
     "logRetentionLines": "Number of logcat lines to include in debug bundles",
     "coordinateScaleX": "X-axis coordinate scaling factor (for non-standard resolutions)",
-    "coordinateScaleY": "Y-axis coordinate scaling factor (for non-standard resolutions)"
+    "coordinateScaleY": "Y-axis coordinate scaling factor (for non-standard resolutions)",
+    "taskexRootPath": "Optional absolute path to TaskEX root; auto-derived from TASKEX_CONFIG_PATH when empty",
+    "taskexPythonPath": "Optional absolute python executable path used by instance MCP tools; defaults to <taskexRootPath>/.venv/Scripts/python.exe"
   }
 }

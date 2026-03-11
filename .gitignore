@@ -19,3 +19,4 @@ TaskEnforcerX.egg-info/
 #convert.txt
 mcp-extensions/taskex.config.json
 /mcp-extensions/dist
+adb.cmd

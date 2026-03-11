@@ -7,7 +7,7 @@ from db.models import ProfileData
 
 
 class ProfileLoadWorkerSignals(QObject):
-    profile_loaded = Signal(dict)
+    profile_loaded = Signal(int, dict)
     error = Signal(str)
 
     def __init__(self):
@@ -34,7 +34,7 @@ class ProfileLoadWorker(QRunnable):
             settings = json.loads(profile_data.settings) if profile_data else {}
             # Emit the signal with the loaded data
             # print(f"Emitting profile_loaded signal with settings: {settings}")
-            self.signals.profile_loaded.emit(settings)
+            self.signals.profile_loaded.emit(self.profile_id, settings)
         except Exception as e:
             error_message = f"Error loading profile data: {e}"
             print(error_message)
