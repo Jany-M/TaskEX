@@ -182,6 +182,69 @@ def run_join_rally(thread):
             thread.log_message(f"Join rally loop error: {e}", "warning", force_console=True)
             thread.log_message(f"Traceback: {traceback.format_exc()}", "debug", force_console=False)
 
+
+def _init_jr_scan_state(thread, controls):
+    join_oldest_rallies_first = controls.get('settings', {}).get('join_oldest_rallies_first', False)
+    scroll_through_rallies(thread, join_oldest_rallies_first, 5, True)
+
+    return {
+        'initialized': True,
+        'join_oldest_rallies_first': join_oldest_rallies_first,
+        'swipe_direction': False if join_oldest_rallies_first else True,
+        'swipe_iteration': 0,
+        'max_swipe_iteration': 0,
+    }
+
+
+def run_join_rally_scan_pass(thread):
+    """Run one join-rally scan pass for orchestrator mode."""
+    controls = _ensure_join_rally_controls(thread)
+    cache_state = thread.cache.setdefault('jr_scan_state', {})
+    if not cache_state.get('initialized', False):
+        cache_state.update(_init_jr_scan_state(thread, controls))
+
+    try:
+        join_oldest_rallies_first = cache_state['join_oldest_rallies_first']
+        swipe_direction = cache_state['swipe_direction']
+        swipe_iteration = cache_state['swipe_iteration']
+        max_swipe_iteration = cache_state['max_swipe_iteration']
+
+        process_monster_rallies(thread, join_oldest_rallies_first)
+        thread.log_message(
+            f"Swipe Direction: {swipe_direction} :: iteration: {swipe_iteration} itr cap: {max_swipe_iteration}",
+            "debug",
+            console=False
+        )
+
+        scroll_through_rallies(thread, swipe_direction)
+
+        swipe_iteration += 1
+        max_swipe_iteration += 1
+
+        if swipe_iteration == 5:
+            swipe_direction = not swipe_direction
+            swipe_iteration = 0
+
+        if max_swipe_iteration >= 20:
+            _ensure_join_rally_controls(thread).setdefault('cache', {})['skipped_monster_cords_img'] = []
+            thread.adb_manager.press_back()
+            time.sleep(1)
+            if navigate_join_rally_window(thread):
+                swipe_direction = True
+                max_swipe_iteration = 0
+
+        cache_state.update({
+            'swipe_direction': swipe_direction,
+            'swipe_iteration': swipe_iteration,
+            'max_swipe_iteration': max_swipe_iteration,
+        })
+
+        return True
+    except Exception as e:
+        thread.log_message(f"Join rally scan pass error: {e}", "warning", force_console=True)
+        thread.log_message(f"Traceback: {traceback.format_exc()}", "debug", force_console=False)
+        return False
+
 def process_monster_rallies(thread,scan_direction):
 
     rally_cords = get_valid_rallies_area_cords(thread)

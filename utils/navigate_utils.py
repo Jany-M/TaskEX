@@ -2,7 +2,7 @@ import time
 
 import cv2
 
-from utils.image_recognition_utils import is_template_match, template_match_coordinates
+from utils.image_recognition_utils import is_template_match, template_match_coordinates, template_match_coordinates_all
 
 
 def _nav_log(thread, message, level="debug"):
@@ -236,3 +236,151 @@ def ensure_alliance_city_or_world_map_screen(thread, ac=True, wm=True):
     # Failed to ensure desired screen
     _nav_log(thread, "Failed to reach Alliance City/World Map after max back attempts.", "warning")
     return False
+
+
+def navigate_to_world_map(thread):
+    """Ensure the game is on World Map."""
+    return ensure_alliance_city_or_world_map_screen(thread, ac=False, wm=True)
+
+
+def navigate_to_bubble_use(thread, controls):
+    """
+    Navigate to inventory/protection and use the selected bubble template.
+
+    Expected controls keys:
+      - bubble_type_id
+      - prioritize_existing
+      - allow_gem_purchase
+    """
+    try:
+        from core.services.bubble_service import get_all_bubble_types
+
+        if not ensure_alliance_city_or_world_map_screen(thread, ac=True, wm=True):
+            return False
+
+        src_img = thread.capture_and_validate_screen()
+        if src_img is None:
+            return False
+
+        items_btn = _load_template('assets/540p/bubbles/items_btn.png', thread)
+        protection_tab = _load_template('assets/540p/bubbles/protection_tab.png', thread)
+        use_btn = _load_template('assets/540p/bubbles/use_btn.png', thread)
+        if items_btn is None or protection_tab is None or use_btn is None:
+            _nav_log(thread, "Missing base bubble navigation templates.", "warning")
+            return False
+
+        item_match = template_match_coordinates(src_img, items_btn)
+        if not item_match:
+            _nav_log(thread, "Items button not found.", "warning")
+            return False
+        thread.adb_manager.tap(item_match[0], item_match[1])
+        time.sleep(1)
+
+        src_img = thread.capture_and_validate_screen()
+        tab_match = template_match_coordinates(src_img, protection_tab)
+        if tab_match:
+            thread.adb_manager.tap(tab_match[0], tab_match[1])
+            time.sleep(1)
+
+        bubble_type_id = controls.get('bubble_type_id')
+        bubble = next((b for b in get_all_bubble_types() if b.id == bubble_type_id), None)
+        if bubble is None or not bubble.img_540p:
+            _nav_log(thread, "Selected bubble type has no configured template.", "warning")
+            return False
+
+        bubble_tpl = _load_template(bubble.img_540p, thread)
+        if bubble_tpl is None:
+            return False
+
+        src_img = thread.capture_and_validate_screen()
+        threshold = bubble.img_threshold if bubble.img_threshold else 0.85
+        bubble_match = template_match_coordinates(src_img, bubble_tpl, threshold=threshold)
+        if not bubble_match:
+            _nav_log(thread, f"Bubble template '{bubble.name}' not found on screen.", "warning")
+            return False
+
+        thread.adb_manager.tap(bubble_match[0], bubble_match[1])
+        time.sleep(0.8)
+
+        src_img = thread.capture_and_validate_screen()
+        use_match = template_match_coordinates(src_img, use_btn, threshold=0.80)
+        if not use_match:
+            _nav_log(thread, "Use button not found after selecting bubble.", "warning")
+            return False
+
+        thread.adb_manager.tap(use_match[0], use_match[1])
+        time.sleep(1)
+        return True
+    except Exception as e:
+        _nav_log(thread, f"navigate_to_bubble_use error: {e}", "warning")
+        return False
+
+
+def scan_resource_tiles_on_map(thread, resource_type_ids, min_level, max_level):
+    """
+    Find resource tiles using DB-configured templates.
+    Returns a list of dicts: {x, y, resource_type_id, level, template_id}
+    """
+    from core.services.resource_service import get_tile_templates_for_resource
+
+    src_img = thread.capture_and_validate_screen(ads=False)
+    if src_img is None:
+        return []
+
+    found = []
+    for resource_type_id in resource_type_ids:
+        templates = get_tile_templates_for_resource(resource_type_id, min_level=min_level, max_level=max_level)
+        for template in templates:
+            tpl = _load_template(template.img_540p, thread)
+            if tpl is None:
+                continue
+            matches = template_match_coordinates_all(src_img, tpl, threshold=template.img_threshold or 0.85)
+            for x, y in matches:
+                found.append({
+                    'x': x,
+                    'y': y,
+                    'resource_type_id': resource_type_id,
+                    'level': template.tile_level,
+                    'template_id': template.id,
+                })
+
+    found.sort(key=lambda t: t['level'], reverse=True)
+    return found
+
+
+def send_gather_march(thread, tile_coords, gather_controls):
+    """Tap a tile and dispatch a gather march via configured UI buttons."""
+    try:
+        x = tile_coords.get('x')
+        y = tile_coords.get('y')
+        if x is None or y is None:
+            return False
+
+        gather_btn = _load_template('assets/540p/gather/gather_btn.png', thread)
+        march_confirm_btn = _load_template('assets/540p/gather/march_confirm_btn.png', thread)
+        if gather_btn is None or march_confirm_btn is None:
+            _nav_log(thread, "Missing gather button templates.", "warning")
+            return False
+
+        thread.adb_manager.tap(x, y)
+        time.sleep(0.8)
+
+        src_img = thread.capture_and_validate_screen(ads=False)
+        gather_match = template_match_coordinates(src_img, gather_btn, threshold=0.80)
+        if not gather_match:
+            return False
+
+        thread.adb_manager.tap(gather_match[0], gather_match[1])
+        time.sleep(1)
+
+        src_img = thread.capture_and_validate_screen(ads=False)
+        confirm_match = template_match_coordinates(src_img, march_confirm_btn, threshold=0.80)
+        if not confirm_match:
+            return False
+
+        thread.adb_manager.tap(confirm_match[0], confirm_match[1])
+        time.sleep(1)
+        return True
+    except Exception as e:
+        _nav_log(thread, f"send_gather_march error: {e}", "warning")
+        return False

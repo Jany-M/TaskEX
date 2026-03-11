@@ -10,6 +10,8 @@ from core.ui_functions import UIFunctions
 from db.db_setup import get_session
 from db.models import Instance, ScreenConfig
 from features.ui.join_rally_ui import load_join_rally_ui
+from features.ui.auto_bubble_ui import load_auto_bubble_ui
+from features.ui.auto_gather_ui import load_auto_gather_ui
 from gui.controllers.run_tab_controller import init_run_tab, load_profile_controls
 from gui.generated.instance_page import Ui_InstancePage
 from utils.dialog_utils import show_error_dialog, show_confirmation_dialog
@@ -183,6 +185,8 @@ def add_new_instance_page(main_window,index,instance):
 
     # Load Join Rally UI
     load_join_rally_ui(instance_ui, main_window, index)
+    load_auto_bubble_ui(instance_ui, main_window, index)
+    load_auto_gather_ui(instance_ui, main_window, index)
 
     # Loop through all the attributes in instance_ui that are widgets and update the object name
     for attr_name in dir(instance_ui):

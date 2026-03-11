@@ -14,6 +14,8 @@ import { registerKeyEvent } from "./tools/keyevent";
 import { registerWaitForScreen } from "./tools/wait-for-screen";
 import { registerDebugBundle } from "./tools/debug-bundle";
 import { registerListInstances, registerInstanceControl } from "./tools/instance-control";
+import { registerTemplateMatch, registerScreenRegion } from "./tools/vision";
+import { registerFindAndTap } from "./tools/find-and-tap";
 
 export class TaskExExtension extends Extension {
   readonly name = "TaskEX";
@@ -31,6 +33,9 @@ export class TaskExExtension extends Extension {
     await registerDebugBundle(server);
     await registerListInstances(server);
     await registerInstanceControl(server);
+    await registerTemplateMatch(server);
+    await registerScreenRegion(server);
+    await registerFindAndTap(server);
 
     console.error("[TaskEX Extension] All TaskEX tools registered successfully");
   }

@@ -187,3 +187,54 @@ def get_game_settings_controls(main_window,index):
     kick_reload_spinbox = getattr(main_window.widgets, f"kick_reload_spinbox___{index}")
     game_settings = {'kick_reload':kick_reload_spinbox.value()}
     return game_settings
+
+
+def get_auto_bubble_controls(main_window, index):
+    enabled_group = getattr(main_window.widgets, f"ab_enabled___{index}", None)
+    bubble_type_combo = getattr(main_window.widgets, f"ab_bubble_type___{index}", None)
+    trigger_spinbox = getattr(main_window.widgets, f"ab_trigger_minutes___{index}", None)
+    prioritize_checkbox = getattr(main_window.widgets, f"ab_prioritize_existing___{index}", None)
+    gem_checkbox = getattr(main_window.widgets, f"ab_allow_gem_purchase___{index}", None)
+
+    return {
+        "enabled": bool(enabled_group.isChecked()) if enabled_group else False,
+        "bubble_type_id": bubble_type_combo.currentData() if bubble_type_combo else None,
+        "bubble_type_name": bubble_type_combo.currentText() if bubble_type_combo else None,
+        "trigger_minutes": int(trigger_spinbox.value()) if trigger_spinbox else 60,
+        "prioritize_existing": bool(prioritize_checkbox.isChecked()) if prioritize_checkbox else True,
+        "allow_gem_purchase": bool(gem_checkbox.isChecked()) if gem_checkbox else False,
+    }
+
+
+def get_auto_gather_controls(main_window, index):
+    enabled_group = getattr(main_window.widgets, f"ag_enabled___{index}", None)
+    resources_combo = getattr(main_window.widgets, f"ag_resources___{index}", None)
+    min_level_spinbox = getattr(main_window.widgets, f"ag_min_level___{index}", None)
+    max_level_spinbox = getattr(main_window.widgets, f"ag_max_level___{index}", None)
+    max_marches_spinbox = getattr(main_window.widgets, f"ag_max_marches___{index}", None)
+    auto_collect_checkbox = getattr(main_window.widgets, f"ag_auto_collect___{index}", None)
+
+    selected_resource_ids = []
+    if resources_combo:
+        for i in resources_combo.checkedIndices():
+            resource_id = resources_combo.itemData(i)
+            if resource_id is not None:
+                selected_resource_ids.append(int(resource_id))
+
+    return {
+        "enabled": bool(enabled_group.isChecked()) if enabled_group else False,
+        "resource_type_ids": selected_resource_ids,
+        "resource_type_names": [resources_combo.itemText(i) for i in resources_combo.checkedIndices()] if resources_combo else [],
+        "min_level": int(min_level_spinbox.value()) if min_level_spinbox else 1,
+        "max_level": int(max_level_spinbox.value()) if max_level_spinbox else 0,
+        "max_marches": int(max_marches_spinbox.value()) if max_marches_spinbox else 1,
+        "auto_collect": bool(auto_collect_checkbox.isChecked()) if auto_collect_checkbox else True,
+    }
+
+
+def get_all_feature_controls(main_window, index):
+    return {
+        "join_rally": get_join_rally_controls(main_window, index),
+        "auto_bubble": get_auto_bubble_controls(main_window, index),
+        "auto_gather": get_auto_gather_controls(main_window, index),
+    }

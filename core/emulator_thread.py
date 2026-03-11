@@ -11,11 +11,13 @@ from core.services.bm_monsters_service import start_simulate_monster_click, \
     generate_template_image, capture_template_ss
 from core.services.bm_scan_generals_service import start_scan_generals
 from db.models import General
-from features.logic.join_rally import run_join_rally
+from features.logic.join_rally import run_join_rally_scan_pass
+from features.logic.auto_bubble import run_auto_bubble_check
+from features.logic.auto_gather import run_auto_gather_cycle
 from utils.adb_manager import ADBManager
 import logging
 
-from utils.get_controls_info import get_game_settings_controls
+from utils.get_controls_info import get_game_settings_controls, get_all_feature_controls
 from utils.image_recognition_utils import is_template_match, template_match_coordinates
 
 
@@ -218,9 +220,32 @@ class EmulatorThread(QThread):
 
     def run_emulator_instance(self):
         """
-        Runs the emulator instance based on the mode.
+        Runs all enabled features in a single orchestrator loop.
         """
-        run_join_rally(self)
+        while self.thread_status():
+            try:
+                feature_controls = get_all_feature_controls(self.main_window, self.index)
+
+                auto_bubble = feature_controls.get('auto_bubble', {})
+                auto_gather = feature_controls.get('auto_gather', {})
+                join_rally = feature_controls.get('join_rally', {})
+
+                if auto_bubble.get('enabled', False):
+                    run_auto_bubble_check(self)
+
+                if auto_gather.get('enabled', False):
+                    run_auto_gather_cycle(self)
+
+                # Join Rally has no explicit enabled toggle yet; run only when any data exists.
+                if join_rally.get('data'):
+                    run_join_rally_scan_pass(self)
+
+                time.sleep(1)
+            except Exception as e:
+                tb = traceback.format_exc()
+                self.log_message(f"Orchestrator loop error: {e}", level="warning", force_console=True)
+                self.log_message(f"Orchestrator loop traceback:\n{tb}", level="debug", force_console=False)
+                time.sleep(1)
 
     def capture_and_validate_screen(self,kick_timer=True, ads=True):
         try:

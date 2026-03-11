@@ -6,3 +6,5 @@ from .profile import Profile,ProfileData
 from .instance import Instance
 from .preset import JoinRallyPresetOption,JoinRallyPresetConfiguration
 from .screen_config import ScreenConfig
+from .bubble import BubbleType
+from .resource_tile import ResourceType,ResourceTileTemplate,GatherPresetConfiguration,GatherPresetOption
