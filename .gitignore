@@ -20,3 +20,4 @@ TaskEnforcerX.egg-info/
 mcp-extensions/taskex.config.json
 /mcp-extensions/dist
 adb.cmd
+db/task_ex - Copia.db

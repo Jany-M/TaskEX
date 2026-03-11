@@ -315,7 +315,7 @@ class Ui_SplashScreen(object):
 
     def retranslateUi(self, SplashScreen):
         SplashScreen.setWindowTitle(QCoreApplication.translate("SplashScreen", u"TaskEX", None))
-        self.label_title_version.setText(QCoreApplication.translate("SplashScreen", u"<html><head/><body><p>TaskEnforcerX <span style=\" font-size:12pt;\">v</span><span style=\" font-size:16pt;\">0.0.1</span></p></body></html>", None))
+        self.label_title_version.setText(QCoreApplication.translate("SplashScreen", u"<html><head/><body><p>TaskEnforcerX <span style=\" font-size:12pt;\">v</span><span style=\" font-size:16pt;\">0.0.3</span></p></body></html>", None))
         self.label_description.setText(QCoreApplication.translate("SplashScreen", u"<html><head/><body><p>Ultimate Edition</p></body></html>", None))
         self.btn_startup.setText(QCoreApplication.translate("SplashScreen", u"Start", None))
         self.startup_field_1.setPlaceholderText(QCoreApplication.translate("SplashScreen", u"Field 1", None))

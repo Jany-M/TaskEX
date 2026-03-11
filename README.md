@@ -378,7 +378,7 @@ Here’s a preview of TaskEnforcerX in action:
 
 ## License
 
-TaskEnforcerX is licensed under the GNU General Public License v3.0 (GPL-3.0).
+TaskEnforcerX is licensed under the GNU General Public License v3.0 or [GPL-3.0](https://github.com/evsahal/TaskEX/blob/master/LICENSE).
 
 This means:
 
@@ -387,9 +387,6 @@ This means:
 ❌ You CANNOT copy, modify, or redistribute this software as a closed-source.
 
 ❌ Any modifications or derived works must also be released under GPL-3.0.
-
-
-📜 You can read the full license details [here](https://github.com/evsahal/TaskEX/blob/master/LICENSE).
 
 ## Android - SDK Platform Tools (latest ADB.exe) 
 
