@@ -204,6 +204,9 @@ def _init_jr_scan_state(thread, controls):
 
 def run_join_rally_scan_pass(thread):
     """Run one join-rally scan pass for orchestrator mode."""
+    if hasattr(thread, 'preempt_for_bubble_if_due') and thread.preempt_for_bubble_if_due("join-rally scan setup"):
+        return False
+
     controls = _ensure_join_rally_controls(thread)
     cache_state = thread.cache.setdefault('jr_scan_state', {})
     if not cache_state.get('initialized', False):
@@ -259,6 +262,8 @@ def process_monster_rallies(thread,scan_direction):
         rally_cords.reverse()
     # print(rally_cords)
     for cords in rally_cords:
+        if hasattr(thread, 'preempt_for_bubble_if_due') and thread.preempt_for_bubble_if_due("join-rally scan loop"):
+            return
         # Recapture the  screen
         src_img = thread.capture_and_validate_screen(ads=False)
         if src_img is None:
@@ -363,6 +368,9 @@ def handle_march_selection_dialog(thread, rally_info):
     Apply presets (troops reset, general selection) and confirm the join.
     """
     try:
+        if hasattr(thread, 'preempt_for_bubble_if_due') and thread.preempt_for_bubble_if_due("join-rally march dialog start"):
+            return False
+
         thread.log_message("March dialog: starting march dialog handler", "info", force_console=True)
         
         # Wait a bit more for dialog to fully render
@@ -414,6 +422,9 @@ def handle_march_selection_dialog(thread, rally_info):
         
         # Wait slightly before confirming
         time.sleep(0.5)
+
+        if hasattr(thread, 'preempt_for_bubble_if_due') and thread.preempt_for_bubble_if_due("join-rally march confirm"):
+            return False
         
         # Click the confirm march button - this is the button that ACTUALLY joins the rally
         march_confirm_btn = find_march_confirm_button(thread)

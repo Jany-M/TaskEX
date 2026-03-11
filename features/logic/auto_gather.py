@@ -103,6 +103,8 @@ def run_auto_gather_cycle(thread):
 
         dispatched = 0
         for tile in tiles:
+            if hasattr(thread, 'preempt_for_bubble_if_due') and thread.preempt_for_bubble_if_due("auto-gather"):
+                return dispatched > 0
             if _count_active_gather_marches(thread) >= max_marches:
                 break
             if send_gather_march(thread, tile, controls):

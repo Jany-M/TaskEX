@@ -17,7 +17,7 @@ from features.logic.auto_gather import run_auto_gather_cycle
 from utils.adb_manager import ADBManager
 import logging
 
-from utils.get_controls_info import get_game_settings_controls, get_all_feature_controls
+from utils.get_controls_info import get_game_settings_controls, get_all_feature_controls, get_auto_bubble_controls
 from utils.image_recognition_utils import is_template_match, template_match_coordinates
 
 
@@ -218,6 +218,55 @@ class EmulatorThread(QThread):
     def thread_status(self):
         return self._running
 
+    def is_auto_bubble_priority_due(self):
+        """
+        Returns True when auto-bubble is enabled and the cached remaining time
+        is at or below the renewal trigger threshold.
+
+        This is intended as a lightweight preemption signal for other activities
+        (join rally / gather) so bubble renewal can take immediate priority.
+        """
+        try:
+            controls = get_auto_bubble_controls(self.main_window, self.index)
+            if not controls.get('enabled', False):
+                return False
+
+            state = self.cache.get('auto_bubble_state', {})
+            expires_at_ts = state.get('expires_at_ts')
+            if not expires_at_ts:
+                return False
+
+            trigger_mins = int(controls.get('trigger_minutes', 60))
+            remaining_minutes = max(0, int((expires_at_ts - time.time()) // 60))
+            return remaining_minutes <= trigger_mins
+        except Exception:
+            return False
+
+    def preempt_for_bubble_if_due(self, context=''):
+        """Best-effort preemption hook used by feature loops."""
+        if not self.is_auto_bubble_priority_due():
+            return False
+        if context:
+            self.log_message(
+                f"[Orchestrator] Auto-bubble priority triggered during {context}. Pausing current activity.",
+                "info",
+                force_console=True,
+            )
+        else:
+            self.log_message(
+                "[Orchestrator] Auto-bubble priority triggered. Pausing current activity.",
+                "info",
+                force_console=True,
+            )
+
+        # Best effort: back out from transient/feature screens so bubble flow can start cleanly.
+        try:
+            from utils.navigate_utils import ensure_shared_feature_start_screen
+            ensure_shared_feature_start_screen(self)
+        except Exception:
+            pass
+        return True
+
     def run_emulator_instance(self):
         """
         Runs all enabled features in a single orchestrator loop.
@@ -241,8 +290,14 @@ class EmulatorThread(QThread):
                 join_rally = feature_controls.get('join_rally', {})
                 join_rally_settings = join_rally.get('settings', {})
 
+                bubble_attempted = False
                 if _should_run(auto_bubble, default_mode='auto'):
-                    run_auto_bubble_check(self)
+                    bubble_attempted = bool(run_auto_bubble_check(self))
+                    # Bubble renewal has highest priority; start the next orchestrator
+                    # turn after it runs so other activities resume in clean intervals.
+                    if bubble_attempted:
+                        time.sleep(0.5)
+                        continue
 
                 if _should_run(auto_gather, default_mode='manual'):
                     run_auto_gather_cycle(self)
