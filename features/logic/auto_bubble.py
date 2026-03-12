@@ -472,8 +472,11 @@ def _run_timer_check_path(thread, controls, force_refresh=False):
     state = thread.cache.setdefault('auto_bubble_state', {})
 
     remaining_mins = None if force_refresh else _get_cached_remaining_minutes(thread, controls)
-    if remaining_mins is None:
+    if remaining_mins is not None:
+        state['last_check_source'] = 'cache'
+    else:
         remaining_mins = _read_bubble_timer(thread, conservative=force_refresh)
+        state['last_check_source'] = 'screen' if remaining_mins is not None else 'unavailable'
 
     if remaining_mins is None:
         # Timer could not be read reliably. Back off to avoid rapid City Buff open/close loops.
@@ -549,6 +552,13 @@ def run_auto_bubble_check(thread, force_refresh=False):
             return False
 
         state = thread.cache.setdefault('auto_bubble_state', {})
+
+        # Skip until the next scheduled check window (idle when timer is far from threshold)
+        if not force_refresh:
+            next_sched = state.get('next_scheduled_check_ts')
+            if next_sched and time.time() < next_sched:
+                return False
+
         next_retry_ts = state.get('next_retry_ts')
         if next_retry_ts and time.time() < next_retry_ts and not force_refresh:
             return False
@@ -556,6 +566,33 @@ def run_auto_bubble_check(thread, force_refresh=False):
         remaining_mins = _run_timer_check_path(thread, controls, force_refresh=force_refresh)
         if remaining_mins is None:
             return False
+
+        trigger_mins = int(controls.get('trigger_minutes', 60))
+        expires_at_ts = state.get('expires_at_ts')
+
+        # If bubble is active and not yet at threshold, sleep exactly until the
+        # threshold time (expires_at minus trigger window, with 60s safety buffer).
+        if remaining_mins > trigger_mins and expires_at_ts:
+            wakeup_ts = expires_at_ts - (trigger_mins * 60) - 60
+            if wakeup_ts > time.time():
+                state['next_scheduled_check_ts'] = wakeup_ts
+                wakeup_str = datetime.fromtimestamp(wakeup_ts).strftime('%H:%M:%S')
+                thread.log_message(
+                    f"[Auto-Bubble] Bubble active ({remaining_mins} min left, "
+                    f"threshold {trigger_mins} min). Next check at {wakeup_str}.",
+                    "info", force_console=True,
+                )
+                return False
+        else:
+            state.pop('next_scheduled_check_ts', None)
+
+        source = state.get('last_check_source', 'unknown')
+        if source == 'screen':
+            thread.log_message("[Auto-Bubble] Check started", "info", force_console=True)
+        thread.log_message(
+            f"[Auto-Bubble] Checked - Time until renewal: {remaining_mins} min",
+            "info", force_console=True,
+        )
 
         return _run_renewal_path_if_needed(thread, controls, remaining_mins)
 

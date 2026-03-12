@@ -262,6 +262,7 @@ def process_monster_rallies(thread,scan_direction):
         rally_cords.reverse()
     # print(rally_cords)
     for cords in rally_cords:
+        thread.cache.pop('jr_last_monster_name', None)
         if hasattr(thread, 'preempt_for_bubble_if_due') and thread.preempt_for_bubble_if_due("join-rally scan loop"):
             return
         # Recapture the  screen
@@ -343,7 +344,12 @@ def process_monster_rallies(thread,scan_direction):
             time.sleep(1)
             continue
         
-        thread.log_message("Rally joined successfully.", "info", force_console=True)
+        joined_monster = thread.cache.get('jr_last_monster_name') or "Unknown"
+        thread.log_message(
+            f"Joined Monster Rally - {joined_monster}",
+            "info",
+            force_console=True,
+        )
         time.sleep(1)
 
 
@@ -1012,6 +1018,7 @@ def read_monster_data(thread,src_img):
         return None
 
     thread.log_message(f"Extracted monster text: {extracted_monster_name}", "info", force_console=True)
+    thread.cache['jr_last_monster_name'] = extracted_monster_name
 
     # Check and skip dawn monster
     if "dawn" in extracted_monster_name:
