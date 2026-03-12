@@ -214,9 +214,14 @@ class UIFunctions():
 
             # MOVE WINDOW / MAXIMIZE / RESTORE
             def moveWindow(event):
-                # IF MAXIMIZED CHANGE TO NORMAL
+                # Only react while dragging with left mouse button.
+                if event.buttons() != Qt.LeftButton:
+                    return
+
+                # If maximized, restore first and then continue drag move.
                 if UIFunctions.returStatus(self):
                     UIFunctions.maximize_restore(self)
+
                 # MOVE WINDOW
                 if event.buttons() == Qt.LeftButton:
                     self.move(self.pos() + event.globalPos() - self.dragPos)
@@ -279,9 +284,9 @@ class UIFunctions():
         screen_height = screen_size.height()
 
         # Startup and minimum window size tuned for better desktop usability.
-        startup_width = int(screen_width * 0.68)
+        startup_width = int(screen_width * 0.74)
         startup_height = int(screen_height * 0.78)
-        min_width = int(screen_width * 0.55)
+        min_width = int(screen_width * 0.60)
         min_height = int(screen_height * 0.60)
 
         # Set the minimum size for the main window
