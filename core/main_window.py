@@ -1,7 +1,7 @@
 import logging
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QShortcut, QKeySequence
+from PySide6.QtGui import QShortcut, QKeySequence, QCloseEvent
 from PySide6.QtWidgets import QMainWindow, QScrollArea, QFrame
 
 from config.settings import TITLE, TITLE_DESCRIPTION, CREDITS, VERSION
@@ -12,6 +12,7 @@ from core.menu_button import connect_buttons, initialize_instances
 from core.ui_functions import UIFunctions
 from db.db_setup import init_db, get_session
 from db.models import Instance
+from features.ui.join_rally_ui import refresh_join_rally_monsters_for_all_instances
 from gui.controllers.bm_blackmarket_controller import init_bm_blackmarket_ui
 from gui.controllers.bm_bubbles_controller import init_bm_bubbles_ui
 from gui.controllers.bm_monsters_controller import init_bm_monster_ui
@@ -198,6 +199,9 @@ class MainWindow(QMainWindow):
             self.widgets.toggleLeftBox.styleSheet() + Settings.BTN_LEFT_BOX_COLOR
         )
 
+        # Refresh Join Rally monster UI for all loaded instances (ensures UI is up-to-date with DB)
+        refresh_join_rally_monsters_for_all_instances(self)
+
         # Setup Pytesseract
         setup_tesseract()
 
@@ -227,6 +231,27 @@ class MainWindow(QMainWindow):
             # SHOW MAIN APP
             # ///////////////////////////////////////////////////////////////
             self.show()
+
+    def closeEvent(self, event: QCloseEvent):
+        """Persist current instance control state before application closes."""
+        try:
+            from core.menu_button import get_active_instance_indexes
+            from gui.controllers.run_tab_controller import save_profile_controls
+            from features.logic.auto_bubble import reset_auto_bubble_state
+
+            for instance_index in get_active_instance_indexes(self):
+                profile_combo = getattr(self.widgets, f"emu_profile_{instance_index}", None)
+                profile_id = profile_combo.currentData() if profile_combo is not None else None
+                if profile_id is None:
+                    continue
+                save_profile_controls(self, instance_index, profile_id=profile_id)
+
+                emulator_thread = getattr(self.widgets, f"emulator_thread_{instance_index}", None)
+                if emulator_thread is not None:
+                    reset_auto_bubble_state(emulator_thread, reason="app close")
+        except Exception:
+            logging.getLogger("taskex_boot").exception("Failed to persist controls on application close")
+        super().closeEvent(event)
 
 
     # RESIZE EVENTS

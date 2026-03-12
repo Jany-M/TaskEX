@@ -1,18 +1,159 @@
+import re
+import json
+import logging
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QFrame, QVBoxLayout, QPushButton, QHBoxLayout, QLabel, QComboBox
 from core.custom_widgets.FlowLayout import FlowLayout
 from core.custom_widgets.QCheckComboBox import QCheckComboBox
 from core.services.bm_monsters_service import fetch_boss_monster_data
 from db.db_setup import get_session
-from db.models import BossMonster, MonsterLevel
+from db.models import BossMonster, MonsterLevel, ProfileData, InstanceSettings
 from gui.widgets.LevelSelectionDialog import LevelSelectionDialog
 from gui.widgets.MarchSpeedSelectionJRDialog import MarchSpeedSelectionJRDialog
 from gui.widgets.PresetConfigDialog import PresetConfigDialog
 
 
+def _obj_name(base_name, suffix=""):
+    return f"{base_name}{suffix}" if suffix else base_name
+
+
+def _extract_boss_id(object_name):
+    match = re.search(r"boss(\d+)", object_name or "")
+    return int(match.group(1)) if match else None
+
+
+def _clear_layout(layout):
+    if layout is None:
+        return
+    while layout.count():
+        item = layout.takeAt(0)
+        widget = item.widget()
+        if widget is not None:
+            widget.setParent(None)
+            widget.deleteLater()
+
+
+def _get_active_instance_indexes(main_window):
+    indexes = []
+    top_menu = getattr(main_window.widgets, "topMenu", None)
+    if top_menu is None:
+        return indexes
+
+    for button in top_menu.findChildren(QPushButton):
+        object_name = button.objectName() or ""
+        if object_name.startswith("btn_emu_"):
+            try:
+                indexes.append(int(object_name.split("_")[-1]))
+            except ValueError:
+                continue
+
+    return sorted(set(indexes))
+
+
+def _snapshot_join_rally_monster_ui(main_window, index):
+    state = {
+        "checked_boss_ids": set(),
+        "checked_combo_levels": {},
+        "logic4_skipped_levels": {},
+    }
+
+    frame1 = getattr(main_window.widgets, f"jr_monster_list1_frame_{index}", None)
+    frame2 = getattr(main_window.widgets, f"jr_monster_list2_frame_{index}", None)
+
+    for frame in [frame1, frame2]:
+        if frame is None:
+            continue
+        for checkbox in frame.findChildren(QCheckBox):
+            if checkbox.isChecked():
+                boss_id = checkbox.property("boss_id")
+                if boss_id is None:
+                    boss_id = _extract_boss_id(checkbox.objectName())
+                if boss_id is not None:
+                    state["checked_boss_ids"].add(int(boss_id))
+
+    if frame2 is not None:
+        for combo_box in frame2.findChildren(QCheckComboBox):
+            boss_id = _extract_boss_id(combo_box.objectName())
+            if boss_id is None:
+                continue
+            selected_level_ids = []
+            for i in combo_box.checkedIndices():
+                level_id = combo_box.itemData(i)
+                if level_id is not None:
+                    selected_level_ids.append(int(level_id))
+            state["checked_combo_levels"][boss_id] = selected_level_ids
+
+        for button in frame2.findChildren(QPushButton):
+            if not (button.objectName() or "").startswith("jr_button_boss"):
+                continue
+            boss_id = _extract_boss_id(button.objectName())
+            if boss_id is None:
+                continue
+            skipped_levels = button.property("value") or []
+            state["logic4_skipped_levels"][boss_id] = [int(level_id) for level_id in skipped_levels]
+
+    return state
+
+
+def refresh_join_rally_monsters(main_window, index):
+    frame1 = getattr(main_window.widgets, f"jr_monster_list1_frame_{index}", None)
+    frame2 = getattr(main_window.widgets, f"jr_monster_list2_frame_{index}", None)
+    if frame1 is None or frame2 is None:
+        return
+
+    previous_state = _snapshot_join_rally_monster_ui(main_window, index)
+
+    flow_layout_1 = frame1.layout()
+    flow_layout_2 = frame2.layout()
+    _clear_layout(flow_layout_1)
+    _clear_layout(flow_layout_2)
+
+    session = get_session()
+    try:
+        boss_monsters = fetch_boss_monster_data(session, 1, 1, None)
+        boss_monsters += fetch_boss_monster_data(session, 1, None, BossMonster.preview_name)
+        for boss in boss_monsters:
+            if boss.monster_logic.id == 1:
+                setup_logic_1(boss, main_window.widgets, main_window, flow_layout_1, name_suffix=str(index))
+
+        boss_monsters = fetch_boss_monster_data(session, [2, 3, 4], None, BossMonster.preview_name)
+        for boss in boss_monsters:
+            if boss.monster_logic.id == 2:
+                setup_logic_2(boss, main_window.widgets, main_window, flow_layout_2, name_suffix=str(index))
+            elif boss.monster_logic.id == 3:
+                setup_logic_3(boss, main_window.widgets, main_window, flow_layout_2, name_suffix=str(index))
+            elif boss.monster_logic.id == 4:
+                setup_logic_4(boss, main_window.widgets, main_window, flow_layout_2, name_suffix=str(index))
+    finally:
+        session.close()
+
+    for boss_id in previous_state["checked_boss_ids"]:
+        checkbox = getattr(main_window.widgets, f"jr_checkbox_boss{boss_id}___{index}", None)
+        if checkbox is not None:
+            checkbox.setChecked(True)
+
+    for boss_id, level_ids in previous_state["checked_combo_levels"].items():
+        combo_box = getattr(main_window.widgets, f"jr_combobox_boss{boss_id}___{index}", None)
+        if combo_box is None:
+            continue
+        for i in range(combo_box.count()):
+            combo_box.setItemCheckState(i, Qt.Checked if combo_box.itemData(i) in level_ids else Qt.Unchecked)
+
+    for boss_id, skipped_levels in previous_state["logic4_skipped_levels"].items():
+        button = getattr(main_window.widgets, f"jr_button_boss{boss_id}___{index}", None)
+        if button is not None:
+            button.setProperty("value", skipped_levels)
+
+
+def refresh_join_rally_monsters_for_all_instances(main_window):
+    for index in _get_active_instance_indexes(main_window):
+        refresh_join_rally_monsters(main_window, index)
+
+
 def load_join_rally_ui(instance_ui,main_window,index):
 
-    _add_join_rally_runtime_controls(instance_ui)
+    _add_join_rally_runtime_controls(instance_ui, main_window, index)
 
     # For Logic 1
     jr_monster_list1_frame = getattr(instance_ui, "jr_monster_list1_frame_")
@@ -96,7 +237,7 @@ def load_join_rally_ui(instance_ui,main_window,index):
     march_speed_configure_btn.clicked.connect(lambda: open_march_speed_config_settings(march_speed_configure_btn,main_window, index))
 
 
-def _add_join_rally_runtime_controls(instance_ui):
+def _add_join_rally_runtime_controls(instance_ui, main_window, index):
     tab = getattr(instance_ui, "join_rally_tab_", None)
     if tab is None or tab.layout() is None:
         return
@@ -140,6 +281,140 @@ def _add_join_rally_runtime_controls(instance_ui):
     mode_combo.currentIndexChanged.connect(lambda _: _sync_manual_state())
     _sync_manual_state()
 
+    def _autosave_join_rally_runtime_controls():
+        """Persist Join Rally runtime controls immediately per instance."""
+        try:
+            from gui.controllers.run_tab_controller import save_profile_controls
+
+            profile_combo = getattr(main_window.widgets, f"emu_profile_{index}", None)
+            profile_id = profile_combo.currentData() if profile_combo is not None else None
+            if profile_id is None:
+                return
+
+            instance_id = profile_combo.property("instance_id") if profile_combo is not None else None
+            storage_key = f"instance:{instance_id}" if instance_id is not None else f"index:{index}"
+
+            def _decode_settings(raw):
+                data = raw
+                for _ in range(3):
+                    if isinstance(data, str):
+                        data = json.loads(data) if data else {}
+                    else:
+                        break
+                return data if isinstance(data, dict) else {}
+
+            def _normalize_profile_payload(raw):
+                data = _decode_settings(raw)
+                if "settings_by_instance" in data:
+                    return {
+                        "settings_by_instance": data.get("settings_by_instance") or {},
+                        "default": data.get("default") or {},
+                    }
+                return {"settings_by_instance": {}, "default": data}
+
+            def _normalize_instance_runtime_payload(raw):
+                if not isinstance(raw, dict):
+                    return {"auto_bubble": {}, "join_rally": {}}
+                if "auto_bubble" in raw or "join_rally" in raw:
+                    return {
+                        "auto_bubble": raw.get("auto_bubble") or {},
+                        "join_rally": raw.get("join_rally") or {},
+                    }
+                return {"auto_bubble": raw, "join_rally": {}}
+
+            def _upsert_entry(blob, class_name, object_name, value, button_type=None):
+                entries = blob.setdefault(class_name, [])
+                for entry in entries:
+                    if entry.get("object_name") == object_name:
+                        entry["value"] = value
+                        if button_type is not None:
+                            entry["type"] = button_type
+                        return
+                payload = {"object_name": object_name, "value": value}
+                if button_type is not None:
+                    payload["type"] = button_type
+                entries.append(payload)
+
+            try:
+                save_profile_controls(main_window, index, profile_id=profile_id)
+            except Exception as e:
+                logging.getLogger("taskex_boot").warning(
+                    "[Join-Rally][Autosave] generic save_profile_controls failed for instance index %s: %s",
+                    index,
+                    e,
+                )
+
+            session = get_session()
+            try:
+                rows = (
+                    session.query(ProfileData)
+                    .filter_by(profile_id=profile_id)
+                    .order_by(ProfileData.id.desc())
+                    .all()
+                )
+                latest = rows[0] if rows else None
+                stale = rows[1:] if len(rows) > 1 else []
+
+                payload = _normalize_profile_payload(latest.settings if latest else {})
+                blob = payload["settings_by_instance"].get(storage_key)
+                if not isinstance(blob, dict):
+                    blob = {}
+
+                _upsert_entry(blob, "QCheckBox", "jr_enabled___", bool(enabled_cb.isChecked()))
+                _upsert_entry(blob, "QComboBox", "jr_service_mode___", mode_combo.currentData())
+                _upsert_entry(
+                    blob,
+                    "QPushButton",
+                    "jr_manual_running___",
+                    bool(manual_btn.isChecked()),
+                    button_type="checkable",
+                )
+
+                payload["settings_by_instance"][storage_key] = blob
+                payload["default"] = blob
+
+                if latest is not None:
+                    latest.settings = payload
+                else:
+                    session.add(ProfileData(profile_id=profile_id, settings=payload))
+
+                for row in stale:
+                    session.delete(row)
+
+                if instance_id is not None:
+                    instance_settings = (
+                        session.query(InstanceSettings)
+                        .filter_by(instance_id=instance_id)
+                        .first()
+                    )
+                    runtime_payload = _normalize_instance_runtime_payload(
+                        instance_settings.auto_bubble if instance_settings is not None else {}
+                    )
+                    runtime_payload["join_rally"] = {
+                        "enabled": bool(enabled_cb.isChecked()),
+                        "service_mode": mode_combo.currentData(),
+                        "manual_running": bool(manual_btn.isChecked()),
+                    }
+
+                    if instance_settings is None:
+                        session.add(InstanceSettings(instance_id=instance_id, auto_bubble=runtime_payload))
+                    else:
+                        instance_settings.auto_bubble = runtime_payload
+
+                session.commit()
+            finally:
+                session.close()
+        except Exception as e:
+            logging.getLogger("taskex_boot").warning(
+                "[Join-Rally][Autosave] failed for instance index %s: %s",
+                index,
+                e,
+            )
+
+    enabled_cb.toggled.connect(lambda _: _autosave_join_rally_runtime_controls())
+    mode_combo.currentIndexChanged.connect(lambda _: _autosave_join_rally_runtime_controls())
+    manual_btn.toggled.connect(lambda _: _autosave_join_rally_runtime_controls())
+
     runtime_layout.addWidget(manual_btn)
     runtime_layout.addStretch()
 
@@ -163,10 +438,10 @@ def open_march_speed_config_settings(btn,main_window,index):
     march_speed_config_dialog.show()
 
 
-def setup_logic_1(boss,instance_ui,main_window,flow_layout):
+def setup_logic_1(boss,instance_ui,main_window,flow_layout, name_suffix=""):
     # print(f"Name : {boss.preview_name} :: Logic : {boss.monster_logic.id}")
     checkbox = QCheckBox(boss.preview_name)
-    checkbox.setObjectName(f"jr_checkbox_boss{boss.id}___")
+    checkbox.setObjectName(_obj_name(f"jr_checkbox_boss{boss.id}___", name_suffix))
     # Custom property to store the boss id and logic
     # checkbox.setProperty("boss_id", boss.id)
     checkbox.setProperty("level_id", boss.levels[0].id)
@@ -174,24 +449,24 @@ def setup_logic_1(boss,instance_ui,main_window,flow_layout):
     setattr(instance_ui, checkbox.objectName(), checkbox)
     flow_layout.addWidget(checkbox)
 
-def setup_logic_2(boss,instance_ui,main_window,flow_layout):
+def setup_logic_2(boss,instance_ui,main_window,flow_layout, name_suffix=""):
     frame = QFrame()
     vert_layout = QVBoxLayout()
     vert_layout.setContentsMargins(0, 0, 10, 5)
 
     # Add a checkbox for the boss
     checkbox = QCheckBox(boss.preview_name)
-    checkbox.setObjectName(f"jr_checkbox_boss{boss.id}___")
+    checkbox.setObjectName(_obj_name(f"jr_checkbox_boss{boss.id}___", name_suffix))
     # Custom property to store the boss id and logic
     checkbox.setProperty("boss_id", boss.id)
     checkbox.setProperty("logic", boss.monster_logic.id)
     setattr(instance_ui, checkbox.objectName(), checkbox)
-    checkbox.stateChanged.connect(lambda : switch_monster_checkbox(instance_ui,boss.id))
+    checkbox.stateChanged.connect(lambda : switch_monster_checkbox(instance_ui,boss.id, name_suffix=name_suffix))
     vert_layout.addWidget(checkbox)
 
     # Add a QCheckComboBox for the boss's levels
     combo_box = QCheckComboBox(placeholderText="None")
-    combo_box.setObjectName(f"jr_combobox_boss{boss.id}___")
+    combo_box.setObjectName(_obj_name(f"jr_combobox_boss{boss.id}___", name_suffix))
     combo_box.setFixedHeight(40)
     combo_box.setMinimumWidth(135)
     setattr(instance_ui, combo_box.objectName(), combo_box)
@@ -212,24 +487,24 @@ def setup_logic_2(boss,instance_ui,main_window,flow_layout):
     # Add the frame to the flow layout
     flow_layout.addWidget(frame)
 
-def setup_logic_3(boss,instance_ui,main_window,flow_layout):
+def setup_logic_3(boss,instance_ui,main_window,flow_layout, name_suffix=""):
     frame = QFrame()
     vert_layout = QVBoxLayout()
     vert_layout.setContentsMargins(0, 0, 10, 5)
 
     # Add a checkbox for the boss
     checkbox = QCheckBox(boss.preview_name)
-    checkbox.setObjectName(f"jr_checkbox_boss{boss.id}___")
+    checkbox.setObjectName(_obj_name(f"jr_checkbox_boss{boss.id}___", name_suffix))
     # Custom property to store the boss id and logic
     checkbox.setProperty("boss_id", boss.id)
     checkbox.setProperty("logic", boss.monster_logic.id)
     setattr(instance_ui, checkbox.objectName(), checkbox)
-    checkbox.stateChanged.connect(lambda : switch_monster_checkbox(instance_ui,boss.id))
+    checkbox.stateChanged.connect(lambda : switch_monster_checkbox(instance_ui,boss.id, name_suffix=name_suffix))
     vert_layout.addWidget(checkbox)
 
     # Add a QCheckComboBox for the boss's levels
     combo_box = QCheckComboBox(placeholderText="None")
-    combo_box.setObjectName(f"jr_combobox_boss{boss.id}___")
+    combo_box.setObjectName(_obj_name(f"jr_combobox_boss{boss.id}___", name_suffix))
     combo_box.setFixedHeight(40)
     combo_box.setMinimumWidth(135)
     setattr(instance_ui, combo_box.objectName(), combo_box)
@@ -251,24 +526,24 @@ def setup_logic_3(boss,instance_ui,main_window,flow_layout):
     flow_layout.addWidget(frame)
 
 
-def setup_logic_4(boss,instance_ui,main_window,flow_layout):
+def setup_logic_4(boss,instance_ui,main_window,flow_layout, name_suffix=""):
     frame = QFrame()
     vert_layout = QVBoxLayout()
     vert_layout.setContentsMargins(0, 0, 10, 5)
 
     # Add a checkbox for the boss
     checkbox = QCheckBox(boss.preview_name)
-    checkbox.setObjectName(f"jr_checkbox_boss{boss.id}___")
+    checkbox.setObjectName(_obj_name(f"jr_checkbox_boss{boss.id}___", name_suffix))
     # Custom property to store the boss id and logic
     checkbox.setProperty("boss_id", boss.id)
     checkbox.setProperty("logic", boss.monster_logic.id)
     setattr(instance_ui, checkbox.objectName(), checkbox)
-    checkbox.stateChanged.connect(lambda: switch_monster_checkbox(instance_ui, boss.id,False))
+    checkbox.stateChanged.connect(lambda: switch_monster_checkbox(instance_ui, boss.id, False, name_suffix=name_suffix))
     vert_layout.addWidget(checkbox)
 
     # Add a Pushbutton for listing boss levels
     button = QPushButton("Skip Levels")
-    button.setObjectName(f"jr_button_boss{boss.id}___")
+    button.setObjectName(_obj_name(f"jr_button_boss{boss.id}___", name_suffix))
     button.setProperty("value", [])
     button.setFixedHeight(40)
     button.setMinimumWidth(135)
@@ -287,7 +562,7 @@ def setup_logic_4(boss,instance_ui,main_window,flow_layout):
     flow_layout.addWidget(frame)
 
 
-def switch_monster_checkbox(instance_ui, boss_id, default=True):
+def switch_monster_checkbox(instance_ui, boss_id, default=True, name_suffix=""):
     """
     Toggles the state of a combo box or a button based on the checkbox state.
 
@@ -295,10 +570,10 @@ def switch_monster_checkbox(instance_ui, boss_id, default=True):
     :param boss_id: The ID of the boss associated with the widgets.
     :param default: If True, handles the combo box. If False, handles the button.
     """
-    checkbox = getattr(instance_ui, f"jr_checkbox_boss{boss_id}___")
+    checkbox = getattr(instance_ui, _obj_name(f"jr_checkbox_boss{boss_id}___", name_suffix))
 
     if default:  # Handle the combo box
-        combobox = getattr(instance_ui, f"jr_combobox_boss{boss_id}___")
+        combobox = getattr(instance_ui, _obj_name(f"jr_combobox_boss{boss_id}___", name_suffix))
         if checkbox.isChecked():
             combobox.setDisabled(False)
             combobox.setCursor(Qt.ArrowCursor)  # Normal cursor
@@ -309,7 +584,7 @@ def switch_monster_checkbox(instance_ui, boss_id, default=True):
             combobox.setDisabled(True)
             combobox.setCursor(Qt.ForbiddenCursor)  # Restricted cursor
     else:  # Handle the button
-        button = getattr(instance_ui, f"jr_button_boss{boss_id}___")
+        button = getattr(instance_ui, _obj_name(f"jr_button_boss{boss_id}___", name_suffix))
         if checkbox.isChecked():
             button.setDisabled(False)
         else:

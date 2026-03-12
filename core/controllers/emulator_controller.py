@@ -27,10 +27,10 @@ def start_emulator_instance(main_window: 'MainWindow', index: int) -> None:
     Start the emulator instance thread for the given index.
     """
     try:
-        profile_id = getattr(main_window.widgets, f'profile_combobox_{index}').currentData()
+        profile_id = getattr(main_window.widgets, f'emu_profile_{index}').currentData()
         if profile_id is not None:
             from gui.controllers.run_tab_controller import save_profile_controls
-            save_profile_controls(main_window, index)
+            save_profile_controls(main_window, index, profile_id=profile_id)
     except Exception as e:
         logging.getLogger("taskex_boot").warning(
             "Could not auto-save profile controls for instance %s: %s",

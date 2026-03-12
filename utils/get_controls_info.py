@@ -8,6 +8,13 @@ from db.models import MonsterLevel, JoinRallyPresetOption, PresetGeneralAssignme
     JoinRallyPresetConfiguration
 
 
+def _get_instance_widget(main_window, index, base_name):
+    widget = getattr(main_window.widgets, f"{base_name}{index}", None)
+    if widget is not None:
+        return widget
+    return getattr(main_window.widgets, base_name, None)
+
+
 def get_join_rally_controls(main_window, index):
 
     # GET MONSTER DATA TO JOIN
@@ -175,9 +182,9 @@ def get_join_rally_controls(main_window, index):
     join_oldest_rallies_checkbox = getattr(main_window.widgets, f"jr_join_oldest_rallies_first___{index}")
     settings['join_oldest_rallies_first'] = join_oldest_rallies_checkbox.isChecked()
 
-    jr_enabled = getattr(main_window.widgets, f"jr_enabled___{index}", None)
-    jr_mode_combo = getattr(main_window.widgets, f"jr_service_mode___{index}", None)
-    jr_manual_btn = getattr(main_window.widgets, f"jr_manual_running___{index}", None)
+    jr_enabled = _get_instance_widget(main_window, index, "jr_enabled___")
+    jr_mode_combo = _get_instance_widget(main_window, index, "jr_service_mode___")
+    jr_manual_btn = _get_instance_widget(main_window, index, "jr_manual_running___")
 
     settings["enabled"] = bool(jr_enabled.isChecked()) if jr_enabled else True
     settings["service_mode"] = jr_mode_combo.currentData() if jr_mode_combo else "manual"
@@ -199,13 +206,13 @@ def get_game_settings_controls(main_window,index):
 
 
 def get_auto_bubble_controls(main_window, index):
-    enabled_group = getattr(main_window.widgets, f"ab_enabled___{index}", None)
-    service_mode_combo = getattr(main_window.widgets, f"ab_service_mode___{index}", None)
-    manual_btn = getattr(main_window.widgets, f"ab_manual_running___{index}", None)
-    bubble_type_combo = getattr(main_window.widgets, f"ab_bubble_type___{index}", None)
-    trigger_spinbox = getattr(main_window.widgets, f"ab_trigger_minutes___{index}", None)
-    prioritize_checkbox = getattr(main_window.widgets, f"ab_prioritize_existing___{index}", None)
-    gem_checkbox = getattr(main_window.widgets, f"ab_allow_gem_purchase___{index}", None)
+    enabled_group = _get_instance_widget(main_window, index, "ab_enabled___")
+    service_mode_combo = _get_instance_widget(main_window, index, "ab_service_mode___")
+    manual_btn = _get_instance_widget(main_window, index, "ab_manual_running___")
+    bubble_type_combo = _get_instance_widget(main_window, index, "ab_bubble_type___")
+    trigger_spinbox = _get_instance_widget(main_window, index, "ab_trigger_minutes___")
+    prioritize_checkbox = _get_instance_widget(main_window, index, "ab_prioritize_existing___")
+    gem_checkbox = _get_instance_widget(main_window, index, "ab_allow_gem_purchase___")
 
     return {
         "enabled": bool(enabled_group.isChecked()) if enabled_group else False,

@@ -188,12 +188,23 @@ def create_monster_from_zip_data(data, temp_extract_folder):
         enable_map_scan=data.get("enable_map_scan", False)
     )
 
-    # Set category and logic
-    category = session.query(MonsterCategory).filter_by(name=data["category"]).one_or_none()
-    logic = session.query(MonsterLogic).filter_by(logic=data["logic"]).one_or_none()
-    if category:
+    # Set category and logic — create if missing
+    category_name = data.get("category")
+    if category_name:
+        category = session.query(MonsterCategory).filter_by(name=category_name).one_or_none()
+        if not category:
+            category = MonsterCategory(name=category_name)
+            session.add(category)
+            session.flush()  # Get the ID
         monster.monster_category_id = category.id
-    if logic:
+
+    logic_name = data.get("logic")
+    if logic_name:
+        logic = session.query(MonsterLogic).filter_by(logic=logic_name).one_or_none()
+        if not logic:
+            logic = MonsterLogic(logic=logic_name, description="")
+            session.add(logic)
+            session.flush()  # Get the ID
         monster.monster_logic_id = logic.id
 
     # Handle images

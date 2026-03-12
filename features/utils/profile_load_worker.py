@@ -29,9 +29,24 @@ class ProfileLoadWorker(QRunnable):
         session = None
         try:
             session = get_session()
-            profile_data = session.query(ProfileData).filter_by(profile_id=self.profile_id).first()
-            # Parse the JSON settings or return an empty dict if no data
-            settings = json.loads(profile_data.settings) if profile_data else {}
+            profile_data = (
+                session.query(ProfileData)
+                .filter_by(profile_id=self.profile_id)
+                .order_by(ProfileData.id.desc())
+                .first()
+            )
+            # ProfileData.settings is a JSON column: SQLAlchemy may return dict (native)
+            # while legacy rows may still be plain JSON strings.
+            raw_settings = profile_data.settings if profile_data else {}
+            settings = raw_settings
+            # Handle legacy double-encoded JSON strings.
+            for _ in range(2):
+                if isinstance(settings, str):
+                    settings = json.loads(settings) if settings else {}
+                else:
+                    break
+            if not isinstance(settings, dict):
+                settings = {}
             # Emit the signal with the loaded data
             # print(f"Emitting profile_loaded signal with settings: {settings}")
             self.signals.profile_loaded.emit(self.profile_id, settings)

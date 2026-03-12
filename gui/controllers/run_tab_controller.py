@@ -1,18 +1,176 @@
-import json
 import logging
+import json
 import re
 from time import sleep
 
 from PySide6.QtCore import Qt, QItemSelectionModel, QThreadPool, QTime
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHeaderView, QTableWidgetItem, QPushButton, QHBoxLayout, QWidget, QAbstractItemView, \
-    QComboBox, QLineEdit, QLabel, QVBoxLayout, QMessageBox, QFrame, QCheckBox, QSpinBox, QTimeEdit
+    QComboBox, QLineEdit, QLabel, QVBoxLayout, QMessageBox, QFrame, QCheckBox, QSpinBox, QTimeEdit, QGroupBox
 from sqlalchemy import select
 
 from core.custom_widgets.QCheckComboBox import QCheckComboBox
 from db.db_setup import get_session
-from db.models import Profile, Instance, GeneralPreset, JoinRallyPresetConfiguration, JoinRallyPresetOption, ProfileData
+from db.models import Profile, Instance, GeneralPreset, JoinRallyPresetConfiguration, JoinRallyPresetOption, ProfileData, InstanceSettings
 from features.utils.profile_load_worker import ProfileLoadWorker
+
+
+def _get_instance_widget(main_window, index, base_name):
+    widget = getattr(main_window.widgets, f"{base_name}{index}", None)
+    if widget is not None:
+        return widget
+    return getattr(main_window.widgets, base_name, None)
+
+
+def _get_instance_storage_key(main_window, index):
+    """Return a stable per-instance key for profile_data payloads."""
+    profile_combo = getattr(main_window.widgets, f"emu_profile_{index}", None)
+    if profile_combo is not None:
+        instance_id = profile_combo.property("instance_id")
+        if instance_id is not None:
+            return f"instance:{instance_id}"
+    return f"index:{index}"
+
+
+def _normalize_profile_settings_payload(raw_settings):
+    """Normalize legacy/new settings payloads into {settings_by_instance, default}."""
+    data = raw_settings
+    for _ in range(2):
+        if isinstance(data, str):
+            try:
+                data = json.loads(data) if data else {}
+            except Exception:
+                data = {}
+                break
+        else:
+            break
+
+    if not isinstance(data, dict):
+        return {"settings_by_instance": {}, "default": {}}
+
+    if "settings_by_instance" in data:
+        return {
+            "settings_by_instance": data.get("settings_by_instance") or {},
+            "default": data.get("default") or {},
+        }
+
+    # Legacy flat dict payload.
+    return {"settings_by_instance": {}, "default": data}
+
+
+def _normalize_instance_runtime_payload(raw_payload):
+    """Normalize instance_settings.auto_bubble into sectioned instance runtime settings."""
+    if not isinstance(raw_payload, dict):
+        return {"auto_bubble": {}, "join_rally": {}}
+
+    if "auto_bubble" in raw_payload or "join_rally" in raw_payload:
+        return {
+            "auto_bubble": raw_payload.get("auto_bubble") or {},
+            "join_rally": raw_payload.get("join_rally") or {},
+        }
+
+    # Backward compatibility: older rows stored bubble settings directly at the top level.
+    return {"auto_bubble": raw_payload, "join_rally": {}}
+
+
+def _save_instance_runtime_section(session, instance_id, section_name, section_payload):
+    if instance_id is None:
+        return
+
+    row = session.query(InstanceSettings).filter_by(instance_id=instance_id).first()
+    runtime_payload = _normalize_instance_runtime_payload(row.auto_bubble if row is not None else {})
+    runtime_payload[section_name] = section_payload or {}
+
+    if row is None:
+        session.add(InstanceSettings(instance_id=instance_id, auto_bubble=runtime_payload))
+    else:
+        row.auto_bubble = runtime_payload
+
+
+def _apply_instance_auto_bubble_settings(main_window, index):
+    profile_combo = getattr(main_window.widgets, f"emu_profile_{index}", None)
+    instance_id = profile_combo.property("instance_id") if profile_combo is not None else None
+    if instance_id is None:
+        return
+
+    session = get_session()
+    try:
+        row = session.query(InstanceSettings).filter_by(instance_id=instance_id).first()
+        if row is None or not isinstance(row.auto_bubble, dict):
+            return
+
+        data = _normalize_instance_runtime_payload(row.auto_bubble).get("auto_bubble") or {}
+
+        ab_enabled = _get_instance_widget(main_window, index, "ab_enabled___")
+        if ab_enabled is not None and "enabled" in data:
+            ab_enabled.setChecked(bool(data.get("enabled")))
+
+        ab_mode = _get_instance_widget(main_window, index, "ab_service_mode___")
+        if ab_mode is not None and "service_mode" in data:
+            value = data.get("service_mode")
+            for i in range(ab_mode.count()):
+                if ab_mode.itemData(i) == value:
+                    ab_mode.setCurrentIndex(i)
+                    break
+
+        ab_manual = _get_instance_widget(main_window, index, "ab_manual_running___")
+        if ab_manual is not None and "manual_running" in data:
+            ab_manual.setChecked(bool(data.get("manual_running")))
+
+        ab_type = _get_instance_widget(main_window, index, "ab_bubble_type___")
+        if ab_type is not None and "bubble_type_id" in data:
+            value = data.get("bubble_type_id")
+            for i in range(ab_type.count()):
+                if ab_type.itemData(i) == value:
+                    ab_type.setCurrentIndex(i)
+                    break
+
+        ab_trigger = _get_instance_widget(main_window, index, "ab_trigger_minutes___")
+        if ab_trigger is not None and "trigger_minutes" in data and data.get("trigger_minutes") is not None:
+            ab_trigger.setValue(int(data.get("trigger_minutes")))
+
+        ab_prio = _get_instance_widget(main_window, index, "ab_prioritize_existing___")
+        if ab_prio is not None and "prioritize_existing" in data:
+            ab_prio.setChecked(bool(data.get("prioritize_existing")))
+
+        ab_gem = _get_instance_widget(main_window, index, "ab_allow_gem_purchase___")
+        if ab_gem is not None and "allow_gem_purchase" in data:
+            ab_gem.setChecked(bool(data.get("allow_gem_purchase")))
+    finally:
+        session.close()
+
+
+def _apply_instance_join_rally_settings(main_window, index):
+    profile_combo = getattr(main_window.widgets, f"emu_profile_{index}", None)
+    instance_id = profile_combo.property("instance_id") if profile_combo is not None else None
+    if instance_id is None:
+        return
+
+    session = get_session()
+    try:
+        row = session.query(InstanceSettings).filter_by(instance_id=instance_id).first()
+        if row is None or not isinstance(row.auto_bubble, dict):
+            return
+
+        data = _normalize_instance_runtime_payload(row.auto_bubble).get("join_rally") or {}
+
+        jr_enabled = _get_instance_widget(main_window, index, "jr_enabled___")
+        if jr_enabled is not None and "enabled" in data:
+            jr_enabled.setChecked(bool(data.get("enabled")))
+
+        jr_mode = _get_instance_widget(main_window, index, "jr_service_mode___")
+        if jr_mode is not None and "service_mode" in data:
+            value = data.get("service_mode")
+            for i in range(jr_mode.count()):
+                if jr_mode.itemData(i) == value:
+                    jr_mode.setCurrentIndex(i)
+                    break
+
+        jr_manual = _get_instance_widget(main_window, index, "jr_manual_running___")
+        if jr_manual is not None and "manual_running" in data:
+            jr_manual.setChecked(bool(data.get("manual_running")))
+    finally:
+        session.close()
 
 
 def init_run_tab(main_window, index, instance):
@@ -54,6 +212,7 @@ def populate_profile_combo(combobox):
 def load_instance_data(main_window,instance,index ):
     # Select the profile
     profile_combobox = getattr(main_window.widgets, f"emu_profile_{index}")
+    manage_profile_combobox = getattr(main_window.widgets, f"profile_combobox_{index}", None)
     # set the instance id as property for profile combobox
     profile_combobox.setProperty('instance_id', instance.id)
     for i in range(profile_combobox.count()):
@@ -62,6 +221,8 @@ def load_instance_data(main_window,instance,index ):
         if item_data == instance.profile_id:
             # Set the combobox index to the matching item
             profile_combobox.setCurrentIndex(i)
+            if manage_profile_combobox is not None:
+                manage_profile_combobox.setCurrentIndex(i)
 
     # Set the emulator name
     emulator_name_ledit = getattr(main_window.widgets, f"emu_name_{index}")
@@ -112,8 +273,16 @@ def update_instance_profile(main_window, index):
     """
     # print(f"Profile changed {index}")
     profile_combobox = getattr(main_window.widgets, f"emu_profile_{index}")
+    manage_profile_combobox = getattr(main_window.widgets, f"profile_combobox_{index}", None)
     instance_id = profile_combobox.property("instance_id")
     selected_profile_id = profile_combobox.currentData()
+
+    # Keep manage-profile combobox aligned with the active instance profile.
+    if manage_profile_combobox is not None:
+        for i in range(manage_profile_combobox.count()):
+            if manage_profile_combobox.itemData(i) == selected_profile_id:
+                manage_profile_combobox.setCurrentIndex(i)
+                break
 
     if instance_id is not None:
         session = get_session()
@@ -774,7 +943,7 @@ def confirm_save_controls(main_window, index):
         QMessageBox.information(main_window, "Success", f"Controls saved to profile '{selected_profile}'.")
 
 
-def save_profile_controls(main_window, index):
+def save_profile_controls(main_window, index, profile_id=None):
     """
     Save widget data from a dynamically generated page into a profile dictionary.
 
@@ -809,23 +978,144 @@ def save_profile_controls(main_window, index):
             # Add data to the appropriate key in the dictionary
             widgets_dict.setdefault(widget.__class__.__name__, []).append(widget_data)
 
+    # Explicit persistence for Join Rally runtime controls.
+    # These controls are dynamically injected and may be missed by generic scans
+    # on some startup/layout timings.
+    def _upsert_widget_entry(class_name, object_name, value, button_type=None):
+        entries = widgets_dict.setdefault(class_name, [])
+        replaced = False
+        for entry in entries:
+            if entry.get("object_name") == object_name:
+                entry["value"] = value
+                if button_type is not None:
+                    entry["type"] = button_type
+                replaced = True
+                break
+        if not replaced:
+            payload = {"object_name": object_name, "value": value}
+            if button_type is not None:
+                payload["type"] = button_type
+            entries.append(payload)
+
+    # Explicit persistence for Auto-Bubble controls
+    ab_enabled = _get_instance_widget(main_window, index, "ab_enabled___")
+    if ab_enabled is not None:
+        _upsert_widget_entry("QGroupBox", "ab_enabled___", bool(ab_enabled.isChecked()))
+
+    ab_service_mode = _get_instance_widget(main_window, index, "ab_service_mode___")
+    if ab_service_mode is not None:
+        _upsert_widget_entry("QComboBox", "ab_service_mode___", ab_service_mode.currentData())
+
+    ab_manual_btn = _get_instance_widget(main_window, index, "ab_manual_running___")
+    if ab_manual_btn is not None:
+        _upsert_widget_entry(
+            "QPushButton",
+            "ab_manual_running___",
+            bool(ab_manual_btn.isChecked()),
+            button_type="checkable",
+        )
+
+    ab_bubble_type = _get_instance_widget(main_window, index, "ab_bubble_type___")
+    if ab_bubble_type is not None:
+        _upsert_widget_entry("QComboBox", "ab_bubble_type___", ab_bubble_type.currentData())
+
+    ab_trigger_mins = _get_instance_widget(main_window, index, "ab_trigger_minutes___")
+    if ab_trigger_mins is not None:
+        _upsert_widget_entry("QSpinBox", "ab_trigger_minutes___", int(ab_trigger_mins.value()))
+
+    ab_prioritize = _get_instance_widget(main_window, index, "ab_prioritize_existing___")
+    if ab_prioritize is not None:
+        _upsert_widget_entry("QCheckBox", "ab_prioritize_existing___", bool(ab_prioritize.isChecked()))
+
+    ab_allow_gem = _get_instance_widget(main_window, index, "ab_allow_gem_purchase___")
+    if ab_allow_gem is not None:
+        _upsert_widget_entry("QCheckBox", "ab_allow_gem_purchase___", bool(ab_allow_gem.isChecked()))
+
+    # Explicit persistence for Join Rally runtime controls.
+    # These controls are dynamically injected and may be missed by generic scans
+    # on some startup/layout timings.
+    jr_enabled = _get_instance_widget(main_window, index, "jr_enabled___")
+    if jr_enabled is not None:
+        _upsert_widget_entry("QCheckBox", "jr_enabled___", bool(jr_enabled.isChecked()))
+
+    jr_mode_combo = _get_instance_widget(main_window, index, "jr_service_mode___")
+    if jr_mode_combo is not None:
+        _upsert_widget_entry("QComboBox", "jr_service_mode___", jr_mode_combo.currentData())
+
+    jr_manual_btn = _get_instance_widget(main_window, index, "jr_manual_running___")
+    if jr_manual_btn is not None:
+        _upsert_widget_entry(
+            "QPushButton",
+            "jr_manual_running___",
+            bool(jr_manual_btn.isChecked()),
+            button_type="checkable",
+        )
+
     # Save it to the db
-    profile_id = getattr(main_window.widgets,f'profile_combobox_{index}').currentData() # Get the profile id
+    if profile_id is None:
+        profile_id = getattr(main_window.widgets,f'profile_combobox_{index}').currentData() # Get the profile id
     if profile_id is None:
         return
 
     session = get_session()
     try:
-        # Check if there's already a ProfileData entry for this profile
-        profile_data = session.query(ProfileData).filter_by(profile_id=profile_id).first()
+        # Use latest entry for profile_id and clean stale duplicates.
+        profile_rows = (
+            session.query(ProfileData)
+            .filter_by(profile_id=profile_id)
+            .order_by(ProfileData.id.desc())
+            .all()
+        )
+        profile_data = profile_rows[0] if profile_rows else None
+        stale_rows = profile_rows[1:] if len(profile_rows) > 1 else []
+
+        payload = _normalize_profile_settings_payload(profile_data.settings if profile_data else {})
+
+        storage_key = _get_instance_storage_key(main_window, index)
+        payload["settings_by_instance"][storage_key] = widgets_dict
+        # Keep default updated for legacy readers and first-time instance loads.
+        payload["default"] = widgets_dict
 
         if profile_data:
             # Update existing entry
-            profile_data.settings = json.dumps(widgets_dict)
+            profile_data.settings = payload
         else:
             # Create new entry
-            profile_data = ProfileData(profile_id=profile_id, settings=json.dumps(widgets_dict))
+            profile_data = ProfileData(profile_id=profile_id, settings=payload)
             session.add(profile_data)
+
+        # Remove duplicate rows so future loads are deterministic.
+        for stale in stale_rows:
+            session.delete(stale)
+
+        profile_combo = getattr(main_window.widgets, f"emu_profile_{index}", None)
+        instance_id = profile_combo.property("instance_id") if profile_combo is not None else None
+
+        _save_instance_runtime_section(
+            session,
+            instance_id,
+            "auto_bubble",
+            {
+                "enabled": bool(ab_enabled.isChecked()) if ab_enabled is not None else True,
+                "service_mode": ab_service_mode.currentData() if ab_service_mode is not None else "auto",
+                "manual_running": bool(ab_manual_btn.isChecked()) if ab_manual_btn is not None else False,
+                "bubble_type_id": ab_bubble_type.currentData() if ab_bubble_type is not None else None,
+                "trigger_minutes": int(ab_trigger_mins.value()) if ab_trigger_mins is not None else 60,
+                "prioritize_existing": bool(ab_prioritize.isChecked()) if ab_prioritize is not None else True,
+                "allow_gem_purchase": bool(ab_allow_gem.isChecked()) if ab_allow_gem is not None else False,
+            },
+        )
+        _save_instance_runtime_section(
+            session,
+            instance_id,
+            "join_rally",
+            {
+                "enabled": bool(jr_enabled.isChecked()) if jr_enabled is not None else True,
+                "service_mode": jr_mode_combo.currentData() if jr_mode_combo is not None else "manual",
+                "manual_running": bool(jr_manual_btn.isChecked()) if jr_manual_btn is not None else False,
+            },
+        )
+
         # Commit changes
         session.commit()
     except Exception as e:
@@ -926,7 +1216,11 @@ def on_profile_loaded(loaded_profile_id, settings, main_window, index):
         # Ignore stale async results when user changes profile quickly.
         return
 
-    # print(index, settings)
+    # Support instance-scoped profile payloads.
+    if isinstance(settings, dict) and "settings_by_instance" in settings:
+        by_instance = settings.get("settings_by_instance") or {}
+        storage_key = _get_instance_storage_key(main_window, index)
+        settings = by_instance.get(storage_key) or by_instance.get(str(index)) or by_instance.get(f"index:{index}") or settings.get("default", {})
 
     page_emu = getattr(main_window.widgets, f"page_emu_{index}", None)
     if not page_emu:
@@ -940,7 +1234,9 @@ def on_profile_loaded(loaded_profile_id, settings, main_window, index):
             value = widget_data.get("value")
 
             # Find the widget by its object name
-            widget = getattr(main_window.widgets,f"{object_name}{index}",None)
+            widget = getattr(main_window.widgets, f"{object_name}{index}", None)
+            if widget is None:
+                widget = getattr(main_window.widgets, object_name, None)
             if not widget:
                 continue
 
@@ -951,6 +1247,9 @@ def on_profile_loaded(loaded_profile_id, settings, main_window, index):
             if isinstance(widget, QCheckBox):
                 widget.setChecked(value)
                 # print(widget.objectName(),value)
+            elif isinstance(widget, QGroupBox):
+                # QGroupBox is checkable and used for auto-bubble enabled state
+                widget.setChecked(value)
             elif isinstance(widget, QLineEdit):
                 widget.setText(value)
             elif isinstance(widget, QSpinBox):
@@ -991,6 +1290,10 @@ def on_profile_loaded(loaded_profile_id, settings, main_window, index):
                     widget.setProperty('value', value)
     # Destroy the worker
     main_window.worker_refs[index] = None
+
+    # Instance-specific bubble settings override shared profile settings.
+    _apply_instance_auto_bubble_settings(main_window, index)
+    _apply_instance_join_rally_settings(main_window, index)
 
 
 

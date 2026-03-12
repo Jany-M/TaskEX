@@ -17,4 +17,10 @@ class Instance(Base):
 
     # Relationships
     profile = relationship("Profile", back_populates="instances")
+    settings = relationship(
+        "InstanceSettings",
+        back_populates="instance",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 

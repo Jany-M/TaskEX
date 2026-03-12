@@ -2,13 +2,14 @@ import os
 import re
 
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QCheckBox, QDialog, QWidget, QMessageBox
+from PySide6.QtWidgets import QCheckBox, QDialog, QWidget, QMessageBox, QPushButton
 
 from core.custom_widgets.FlowLayout import FlowLayout
 from core.services.bm_monsters_service import export_selected_bosses, \
     get_all_boss_monster_data_for_bm
 from db.db_setup import get_session
 from db.models import BossMonster, MonsterImage, MonsterLevel
+from features.ui.join_rally_ui import refresh_join_rally_monsters_for_all_instances
 from gui.widgets.MonsterEditDialog import MonsterEditDialog
 from gui.widgets.MonsterProfileWidget import MonsterProfileWidget
 from gui.widgets.MonsterUploadDialog import MonsterUploadDialog
@@ -16,6 +17,8 @@ from utils.constants_util import logic_colors
 
 
 def init_bm_monster_ui(main_window):
+    _ensure_export_select_toggle(main_window)
+
     # Connect the upload button to open the dialog
     main_window.widgets.upload_monsters_btn.clicked.connect(lambda :open_upload_dialog(main_window))
     # Connect the export button to toggle the confirmation frame
@@ -47,6 +50,46 @@ def init_bm_monster_ui(main_window):
     for boss in boss_monsters:
         # print(boss.monster_logic_id)
         add_monster_to_frame(main_window,boss)
+
+
+def _ensure_export_select_toggle(main_window):
+    if hasattr(main_window.widgets, "select_all_none_export_btn"):
+        return
+
+    button = QPushButton("Select All", main_window.widgets.export_monster_confirm_frame)
+    button.setObjectName("select_all_none_export_btn")
+    button.setMinimumSize(100, 45)
+    button.clicked.connect(lambda: toggle_select_all_none(main_window))
+    setattr(main_window.widgets, button.objectName(), button)
+
+    main_window.widgets.horizontalLayout_6.insertWidget(0, button)
+
+
+def _get_export_checkboxes(main_window):
+    monsters_list_frame = main_window.widgets.monsters_list_frame
+    return monsters_list_frame.findChildren(QCheckBox)
+
+
+def _sync_select_all_none_button(main_window):
+    button = getattr(main_window.widgets, "select_all_none_export_btn", None)
+    if button is None:
+        return
+
+    checkboxes = _get_export_checkboxes(main_window)
+    has_unchecked = any(not checkbox.isChecked() for checkbox in checkboxes)
+    button.setText("Select All" if has_unchecked else "Select None")
+
+
+def toggle_select_all_none(main_window):
+    checkboxes = _get_export_checkboxes(main_window)
+    if not checkboxes:
+        return
+
+    should_select_all = any(not checkbox.isChecked() for checkbox in checkboxes)
+    for checkbox in checkboxes:
+        checkbox.setChecked(should_select_all)
+
+    _sync_select_all_none_button(main_window)
 
 
 def add_monster_to_frame(main_window,boss):
@@ -122,6 +165,7 @@ def clone_monster(main_window, boss_id):
 
         cloned = session.query(BossMonster).filter(BossMonster.id == cloned_boss.id).one()
         add_monster_to_frame(main_window, cloned)
+        refresh_join_rally_monsters_for_all_instances(main_window)
     except Exception as e:
         session.rollback()
         QMessageBox.critical(main_window, "Clone Failed", f"Failed to clone monster. Error: {str(e)}")
@@ -179,6 +223,8 @@ def update_monster_profile_ui(main_window, boss_id):
 
         session.close()
 
+    refresh_join_rally_monsters_for_all_instances(main_window)
+
 def open_upload_dialog(main_window):
     # Create an instance of the dialog class
     dialog = MonsterUploadDialog(main_window)
@@ -199,6 +245,14 @@ def toggle_frame(main_window):
         if not is_checked:
             # print(f"Checkbox boss id: {checkbox.property("boss_id")}")
             checkbox.setChecked(False)
+
+    select_toggle_btn = getattr(main_window.widgets, "select_all_none_export_btn", None)
+    if select_toggle_btn:
+        select_toggle_btn.setVisible(is_checked)
+        if is_checked:
+            _sync_select_all_none_button(main_window)
+        else:
+            select_toggle_btn.setText("Select All")
 
     # Toggle confirm frame
     main_window.widgets.export_monster_confirm_frame.setVisible(export_monsters_btn.isChecked())

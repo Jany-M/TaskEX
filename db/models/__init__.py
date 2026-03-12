@@ -4,6 +4,7 @@ from .monster import MonsterCategory,MonsterImage,MonsterLogic,MonsterLevel,Boss
 from .blackmarket import BlackMarket,BlackMarketItem
 from .profile import Profile,ProfileData
 from .instance import Instance
+from .instance_settings import InstanceSettings
 from .preset import JoinRallyPresetOption,JoinRallyPresetConfiguration
 from .screen_config import ScreenConfig
 from .bubble import BubbleType

@@ -10,12 +10,15 @@ from PySide6.QtWidgets import QMessageBox, QDialog, QFileDialog
 
 from core.custom_widgets.FlowLayout import FlowLayout
 from core.services.bm_monsters_service import create_monster_from_zip_data
+from config.settings import get_assets_dir
 from db.db_setup import get_session
 from gui.generated.monster_upload_dialog import Ui_Monster_Upload_Dialog
 from gui.widgets.MonsterEditDialog import MonsterEditDialog
 from gui.widgets.MonsterProfileWidget import MonsterProfileWidget
+from features.ui.join_rally_ui import refresh_join_rally_monsters_for_all_instances
 from utils.constants_util import logic_colors
 from utils.helper_utils import copy_image_to_preview, copy_image_to_template
+from db.models import BossMonster
 
 
 class MonsterUploadDialog(QDialog, Ui_Monster_Upload_Dialog):
@@ -44,6 +47,26 @@ class MonsterUploadDialog(QDialog, Ui_Monster_Upload_Dialog):
 
         # Connect the custom signal to the slot that updates the console
         self.log_message.connect(self.update_console)
+
+    @staticmethod
+    def _normalize_monster_name(name):
+        return (name or "").strip().lower()
+
+    def _existing_monster_names(self):
+        session = get_session()
+        try:
+            return {
+                self._normalize_monster_name(name)
+                for (name,) in session.query(BossMonster.preview_name).all()
+            }
+        finally:
+            session.close()
+
+    def _pending_monster_names(self):
+        return {
+            self._normalize_monster_name(monster.preview_name)
+            for monster in self.boss_monster_list
+        }
 
     def update_console(self, message):
         """
@@ -125,7 +148,7 @@ class MonsterUploadDialog(QDialog, Ui_Monster_Upload_Dialog):
         if widget.data == old_monster:
             # Update the widget's data and refresh the displayed info
             widget.data = updated_monster
-            preview_path = os.path.join( 'assets', 'preview')
+            preview_path = get_assets_dir() / "preview"
             # Setup Monster Preview
             widget.ui.monster_name_label.setText(updated_monster.preview_name)
 
@@ -134,7 +157,7 @@ class MonsterUploadDialog(QDialog, Ui_Monster_Upload_Dialog):
                 monster_preview = file_path  # Use the provided image path
             else:
                 # Use the default preview image
-                monster_preview = os.path.join(str(preview_path), "default_preview.png")
+                monster_preview = str(preview_path / "default_preview.png")
 
             pixmap = QPixmap(monster_preview)
             if pixmap.isNull():
@@ -167,13 +190,34 @@ class MonsterUploadDialog(QDialog, Ui_Monster_Upload_Dialog):
         # Add to the database
         session = get_session()
         try:
+            existing_names = {
+                self._normalize_monster_name(name)
+                for (name,) in session.query(BossMonster.preview_name).all()
+            }
+
+            monsters_to_save = []
             for monster in self.boss_monster_list:
+                normalized_name = self._normalize_monster_name(monster.preview_name)
+                if normalized_name in existing_names:
+                    self.log_message.emit(f"Skipped duplicate monster: {monster.preview_name}")
+                    continue
+
+                monsters_to_save.append(monster)
+                existing_names.add(normalized_name)
+
+            if not monsters_to_save:
+                self.log_message.emit("No new monsters to upload (all duplicates).")
+                self.upload_monsters_btn.setEnabled(False)
+                self.boss_monster_list.clear()
+                return
+
+            for monster in monsters_to_save:
                 session.add(monster)
                 # Commit to assign IDs to new monsters
             session.commit()
 
             # After commit, add each monster to the main frame
-            for monster in self.boss_monster_list:
+            for monster in monsters_to_save:
                 # Move the file to the preview folder if file_path is set
                 self.log_message.emit(f"Adding {monster.preview_name} to the system...")
                 if monster.preview_img_path and os.path.exists(monster.preview_img_path):
@@ -183,7 +227,8 @@ class MonsterUploadDialog(QDialog, Ui_Monster_Upload_Dialog):
 
                 # Now we can call add_monster_to_main_frame because monster IDs are assigned
                 self.add_monster_to_main_frame(monster)
-            self.log_message.emit('New monsters added to the system. Please restart to update the existing instances.')
+            refresh_join_rally_monsters_for_all_instances(self.main_window)
+            self.log_message.emit('New monsters added to the system. Join Rally lists were refreshed for existing instances.')
             # Disable the upload button after saving
             self.upload_monsters_btn.setEnabled(False)
             self.boss_monster_list.clear()  # Clear the list after saving
@@ -233,10 +278,24 @@ class MonsterUploadDialog(QDialog, Ui_Monster_Upload_Dialog):
             with open(yaml_file_path, 'r') as yaml_file:
                 monsters_data = yaml.safe_load(yaml_file)
 
+            existing_names = self._existing_monster_names()
+            pending_names = self._pending_monster_names()
+
             # Convert YAML data to BossMonster objects and add to the upload scroll area
             for monster_data in monsters_data:
+                incoming_name = (monster_data or {}).get("preview_name")
+                normalized_name = self._normalize_monster_name(incoming_name)
+                if not normalized_name:
+                    self.log_message.emit("Skipped monster with empty name in import file.")
+                    continue
+
+                if normalized_name in existing_names or normalized_name in pending_names:
+                    self.log_message.emit(f"Skipped duplicate monster: {incoming_name}")
+                    continue
+
                 new_monster = create_monster_from_zip_data(monster_data, temp_extract_folder)
                 self.add_new_monster_to_list(new_monster, new_monster.preview_img_path)
+                pending_names.add(normalized_name)
             self.log_message.emit('Monsters imported successfully to the upload list.')
             # QMessageBox.information(self, "Import Successful", "Monsters imported successfully!")
 
