@@ -12,7 +12,7 @@ from core.services.bm_monsters_service import start_simulate_monster_click, \
 from core.services.bm_scan_generals_service import start_scan_generals
 from db.models import General
 from features.logic.join_rally import run_join_rally_scan_pass
-from features.logic.auto_bubble import run_auto_bubble_check
+from features.logic.auto_bubble import run_auto_bubble_check, reset_auto_bubble_state
 from features.logic.auto_gather import run_auto_gather_cycle
 from utils.adb_manager import ADBManager
 import logging
@@ -271,6 +271,50 @@ class EmulatorThread(QThread):
         """
         Runs all enabled features in a single orchestrator loop.
         """
+        def _prepare_startup_baseline():
+            """
+            Startup pipeline:
+            1) Close any popup with red/top-right X.
+            2) Ensure baseline screen (Alliance City or World Map).
+            """
+            try:
+                from utils.navigate_utils import find_and_close_popup_via_red_x, ensure_shared_feature_start_screen
+
+                closed_any_popup = False
+                for _ in range(5):
+                    if not find_and_close_popup_via_red_x(self, max_attempts=1):
+                        break
+                    closed_any_popup = True
+
+                if closed_any_popup:
+                    self.log_message(
+                        "[Orchestrator] Startup: closed popup(s) via X before baseline check.",
+                        "info",
+                        force_console=True,
+                    )
+
+                if not ensure_shared_feature_start_screen(self):
+                    self.log_message(
+                        "[Orchestrator] Startup: failed to reach baseline (Alliance City / World Map).",
+                        "warning",
+                        force_console=True,
+                    )
+                    return False
+
+                self.log_message(
+                    "[Orchestrator] Startup: baseline confirmed (Alliance City / World Map).",
+                    "info",
+                    force_console=True,
+                )
+                return True
+            except Exception as e:
+                self.log_message(
+                    f"[Orchestrator] Startup baseline preparation error: {e}",
+                    "warning",
+                    force_console=True,
+                )
+                return False
+
         def _should_run(feature, default_mode="off"):
             if not feature.get('enabled', False):
                 return False
@@ -281,6 +325,14 @@ class EmulatorThread(QThread):
                 return bool(feature.get('manual_running', False))
             return False
 
+        # Always begin each emulator thread with a fresh bubble state cache.
+        reset_auto_bubble_state(self, reason="thread start")
+        bubble_bootstrap_done = False
+        startup_prepared = False
+        no_activity_stop_checked = False
+        startup_ts = time.time()
+        no_activity_confirm_count = 0
+
         while self.thread_status():
             try:
                 feature_controls = get_all_feature_controls(self.main_window, self.index)
@@ -290,9 +342,46 @@ class EmulatorThread(QThread):
                 join_rally = feature_controls.get('join_rally', {})
                 join_rally_settings = join_rally.get('settings', {})
 
+                if not startup_prepared:
+                    startup_prepared = _prepare_startup_baseline()
+                    if not startup_prepared:
+                        time.sleep(1)
+                        continue
+
+                # After startup bubble check, if no non-bubble activities are enabled, stop thread.
+                # Use a grace window + repeated confirmation so profile load timing does not cause false exits.
+                if bubble_bootstrap_done and not no_activity_stop_checked:
+                    if time.time() - startup_ts >= 10:
+                        auto_gather_enabled = _should_run(auto_gather, default_mode='manual')
+                        join_rally_enabled = _should_run(join_rally_settings, default_mode='manual') and bool(join_rally.get('data'))
+
+                        if not auto_gather_enabled and not join_rally_enabled:
+                            no_activity_confirm_count += 1
+                            if no_activity_confirm_count >= 3:
+                                self.log_message(
+                                    "[Orchestrator] No post-bubble auto activities enabled. Stopping instance as requested.",
+                                    "info",
+                                    force_console=True,
+                                )
+                                self.stop()
+                                return
+                        else:
+                            no_activity_stop_checked = True
+                            no_activity_confirm_count = 0
+
                 bubble_attempted = False
                 if _should_run(auto_bubble, default_mode='auto'):
-                    bubble_attempted = bool(run_auto_bubble_check(self))
+                    # First action on startup: force a fresh timer read before any other feature runs.
+                    if not bubble_bootstrap_done:
+                        self.log_message(
+                            "[Orchestrator] Auto-bubble bootstrap check (fresh timer read) before other activities.",
+                            "info",
+                            force_console=True,
+                        )
+                        bubble_attempted = bool(run_auto_bubble_check(self, force_refresh=True))
+                        bubble_bootstrap_done = True
+                    else:
+                        bubble_attempted = bool(run_auto_bubble_check(self))
                     # Bubble renewal has highest priority; start the next orchestrator
                     # turn after it runs so other activities resume in clean intervals.
                     if bubble_attempted:

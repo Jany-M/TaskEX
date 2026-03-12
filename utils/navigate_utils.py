@@ -1,10 +1,16 @@
 import re
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
 
+from config.settings import get_assets_dir
 from utils.image_recognition_utils import is_template_match, template_match_coordinates, template_match_coordinates_all
+
+
+PANEL_BACK_ICON_COORDS = (35, 30)
+RENEWAL_CONFIRM_COORDS_540P = (345, 573)
 
 
 def _nav_log(thread, message, level="debug"):
@@ -14,15 +20,66 @@ def _nav_log(thread, message, level="debug"):
         pass
 
 
+def _resolve_template_path(path: str) -> str:
+    """Resolve an asset path to an absolute file path for cv2.imread."""
+    p = Path(path)
+    if p.is_absolute():
+        return str(p)
+    normalized = str(p).replace("\\", "/")
+    if normalized.startswith("assets/"):
+        relative = normalized[len("assets/"):]
+        return str(get_assets_dir() / relative)
+    return str((Path.cwd() / p).resolve())
+
+
 def _load_template(path, thread):
-    template = cv2.imread(path)
+    resolved_path = _resolve_template_path(path)
+    template = cv2.imread(resolved_path)
     if template is None:
-        _nav_log(thread, f"Template not found or unreadable: {path}", "warning")
+        _nav_log(thread, f"Template not found or unreadable: {path} (resolved: {resolved_path})", "warning")
     return template
 
 
 def _load_optional_template(path):
-    return cv2.imread(path)
+    return cv2.imread(_resolve_template_path(path))
+
+
+def _is_use_item_screen(img):
+    """
+    Validate that the image is actually the Use Item / bubble selection screen.
+    
+    Looks for the "Use Item" title in the golden header bar.
+    Returns True if Use Item screen is detected, False otherwise.
+    """
+    if img is None or img.size == 0:
+        return False
+
+    try:
+        from pytesseract import pytesseract
+
+        img_h, img_w = img.shape[:2]
+
+        # Use Item title is in the top golden header bar
+        x1 = int(img_w * 0.0)
+        y1 = int(img_h * 0.0)
+        x2 = int(img_w * 1.0)
+        y2 = int(img_h * 0.08)
+        title_roi = img[y1:y2, x1:x2]
+
+        if title_roi is None or title_roi.size == 0:
+            return False
+
+        gray = cv2.cvtColor(title_roi, cv2.COLOR_BGR2GRAY)
+        enlarged = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        text = pytesseract.image_to_string(enlarged, config='--psm 6').strip().lower()
+
+        # Must contain "Use Item"
+        is_use_item = 'use item' in text or ('use' in text and 'item' in text)
+        return is_use_item
+
+    except Exception:
+        # On OCR error, fail open to avoid false negatives
+        return True
 
 
 def _find_standard_dialog_button(screen, template_paths, hsv_ranges, min_area=1200):
@@ -68,6 +125,82 @@ def find_dialog_confirm_button(screen):
         hsv_ranges=[([70, 80, 100], [100, 255, 255])],
         min_area=1200,
     )
+
+
+def _find_bubble_dialog_confirm_button(screen):
+    """
+    Find confirm button specifically for bubble replacement/activation dialogs.
+    Restricts search to center-lower dialog area to avoid matching background Use buttons.
+    """
+    if screen is None or screen.size == 0:
+        return None
+
+    img_h, img_w = screen.shape[:2]
+
+    # First choice: exact confirm button template on the full screen.
+    # This is what the user explicitly requested and is the safest option
+    # when the replacement dialog darkens the background.
+    confirm_template = _load_optional_template('assets/540p/dialogs/confirm_btn.png')
+    if confirm_template is not None:
+        full_match = template_match_coordinates(screen, confirm_template, threshold=0.72)
+        if full_match is not None:
+            fx, fy = full_match
+            # Guard against matching unrelated green buttons higher on the screen.
+            if fy >= int(img_h * 0.48):
+                return full_match
+
+    x1 = int(img_w * 0.12)
+    x2 = int(img_w * 0.90)
+    y1 = int(img_h * 0.52)
+    y2 = int(img_h * 0.78)
+    roi = screen[y1:y2, x1:x2]
+    if roi is None or roi.size == 0:
+        roi = None
+
+    # Second choice: exact dialog confirm button template inside the dialog ROI.
+    if roi is not None and confirm_template is not None:
+        match = template_match_coordinates(roi, confirm_template, threshold=0.78)
+        if match is not None:
+            return x1 + match[0], y1 + match[1]
+
+    # Third choice: calibrated fallback from the attached screenshot.
+    # 540x960 replacement dialog confirm button center is near (345, 573).
+    fixed_x = int(img_w * (RENEWAL_CONFIRM_COORDS_540P[0] / 540.0))
+    fixed_y = int(img_h * (RENEWAL_CONFIRM_COORDS_540P[1] / 960.0))
+    if int(img_h * 0.48) <= fixed_y <= int(img_h * 0.75):
+        return fixed_x, fixed_y
+
+    if roi is None:
+        return None
+
+    # Final fallback: prefer right-side green rectangular button in dialog ROI.
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    green_mask = cv2.inRange(hsv, np.array([70, 80, 90]), np.array([100, 255, 255]))
+    contours, _ = cv2.findContours(green_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    candidates = []
+    for contour in contours:
+        bx, by, bw, bh = cv2.boundingRect(contour)
+        area = bw * bh
+        if area < 1800 or bw < 80 or bh < 24:
+            continue
+        # Global center coordinates
+        cx = x1 + bx + bw // 2
+        cy = y1 + by + bh // 2
+        candidates.append((cx, cy, area))
+
+    if candidates:
+        # Confirm button is expected on the right side of dialog.
+        cx, cy, _ = max(candidates, key=lambda item: (item[0], item[2]))
+        return cx, cy
+
+    # Fallback: generic confirm detection but reject matches outside dialog zone.
+    generic = find_dialog_confirm_button(screen)
+    if generic is not None:
+        gx, gy = generic
+        if y1 <= gy <= y2 and gx >= int(img_w * 0.45):
+            return generic
+    return None
 
 
 def _is_exit_game_prompt(screen):
@@ -159,6 +292,21 @@ def tap_back_button_full_screen(thread, back_icon_coords=(40, 105)):
         return False
 
 
+def retreat_bubble_panels(thread, steps=2, wait_seconds=0.5):
+    """
+    Leave the nested bubble panels using the in-game top-left back icon.
+
+    This is safer than Android BACK because the game can show an exit prompt
+    when backing out too far from the HUD.
+    """
+    for step in range(max(0, steps)):
+        if not tap_back_button_full_screen(thread, back_icon_coords=PANEL_BACK_ICON_COORDS):
+            _nav_log(thread, f"Bubble panel retreat stopped early at step {step + 1}.", "warning")
+            return False
+        time.sleep(wait_seconds)
+    return True
+
+
 def press_back_with_exit_guard(thread, wait_seconds=0.8):
     """
     Press Android BACK, then cancel the "exit game" prompt if it appears.
@@ -236,11 +384,8 @@ def tap_top_right_popup_close(thread, src_img=None):
                 _nav_log(thread, f"Closed popup via top-right circular X at ({tap_x}, {tap_y})")
                 return True
 
-        for tap_x, tap_y in _get_top_right_popup_close_points(src_img):
-            thread.adb_manager.tap(tap_x, tap_y)
-            time.sleep(0.8)
-            _nav_log(thread, f"Tapped top-right popup close fallback at ({tap_x}, {tap_y})")
-            return True
+        # Do not perform blind fallback taps when no close-like candidate is detected.
+        return False
     except Exception as e:
         _nav_log(thread, f"Error tapping top-right popup close button: {e}", "warning")
     return False
@@ -281,10 +426,31 @@ def find_and_close_popup_via_red_x(thread, max_attempts=3):
                 if M["m00"] > 0:
                     cx = int(M["m10"] / M["m00"])
                     cy = int(M["m01"] / M["m00"])
+
+                    # Ignore unlikely red-X candidates in the middle/left of the screen.
+                    # Close buttons are expected near top-right regions.
+                    img_h, img_w = src_img.shape[:2]
+                    if cx < int(img_w * 0.55) or cy > int(img_h * 0.30):
+                        _nav_log(thread, f"Ignored red X candidate at ({cx}, {cy}) outside close-button zone.", "debug")
+                        continue
+
                     thread.adb_manager.tap(cx, cy)
                     time.sleep(0.8)
-                    _nav_log(thread, f"Closed popup via red X at ({cx}, {cy})")
-                    return True
+
+                    after_img = thread.capture_and_validate_screen(ads=False)
+                    if after_img is not None and src_img.shape == after_img.shape:
+                        diff = cv2.absdiff(src_img, after_img)
+                        if float(np.mean(diff)) >= 3.0:
+                            _nav_log(thread, f"Closed popup via red X at ({cx}, {cy})")
+                            return True
+                        _nav_log(
+                            thread,
+                            f"Ignored red X candidate at ({cx}, {cy}) because screen did not change.",
+                            "debug",
+                        )
+                    else:
+                        _nav_log(thread, f"Closed popup via red X at ({cx}, {cy})")
+                        return True
 
             if tap_top_right_popup_close(thread, src_img=src_img):
                 return True
@@ -315,7 +481,7 @@ def confirm_bubble_activation_dialogs(thread, max_dialogs=2):
         confirmed_count = 0
         
         for attempt in range(max_dialogs):
-            time.sleep(0.5)  # Wait for dialog to appear
+            time.sleep(0.8)  # Wait for dialog to appear and dark overlay to settle
             
             src_img = thread.capture_and_validate_screen(ads=False)
             if src_img is None:
@@ -326,7 +492,7 @@ def confirm_bubble_activation_dialogs(thread, max_dialogs=2):
                 tap_dialog_cancel_button(thread, screen=src_img)
                 return False
 
-            confirm_btn = find_dialog_confirm_button(src_img)
+            confirm_btn = _find_bubble_dialog_confirm_button(src_img)
             if not confirm_btn:
                 _nav_log(thread, f"Dialog {attempt + 1}: No green confirm button detected (may be end of sequence).", "debug")
                 break
@@ -409,6 +575,36 @@ def _read_use_item_remaining_banner(thread, src_img=None):
                 best_text = text
 
     return observed_minutes, best_text
+
+
+def read_bubble_remaining_from_selection_screen(thread, conservative=False):
+    """
+    Read remaining bubble timer from the Use Item top banner.
+
+    Returns:
+        tuple[int|None, str]
+            - remaining minutes (or None)
+            - OCR text captured from banner (for debug)
+    """
+    panel_img = open_bubble_status_panel(thread, conservative=conservative)
+    if panel_img is None:
+        return None, ""
+
+    # If bubble selection cannot be opened, retreat from City Buff and return.
+    if not open_bubble_selection_screen(thread, panel_img=panel_img):
+        tap_back_button_full_screen(thread, back_icon_coords=(40, 105))
+        time.sleep(0.3)
+        return None, ""
+
+    try:
+        remaining_minutes, ocr_text = _read_use_item_remaining_banner(thread)
+        return remaining_minutes, ocr_text
+    finally:
+        # Retreat from Use Item and City Buff screens.
+        tap_back_button_full_screen(thread, back_icon_coords=(40, 105))
+        time.sleep(0.25)
+        tap_back_button_full_screen(thread, back_icon_coords=(40, 105))
+        time.sleep(0.25)
 
 
 def verify_bubble_activation_remaining_time(thread, bubble, previous_minutes=None, previous_text='', tolerance_minutes=5, timeout_seconds=60):
@@ -506,8 +702,8 @@ def validate_screen_or_retreat(thread, validation_func, back_button_coords=(40, 
 
 
 def navigate_generals_window(thread):
-    generals_btn_img = cv2.imread('assets/540p/other/generals_window_btn.png')
-    menu_btn_img = cv2.imread('assets/540p/other/three_dots_menu_btn.png')
+    generals_btn_img = _load_template('assets/540p/other/generals_window_btn.png', thread)
+    menu_btn_img = _load_template('assets/540p/other/three_dots_menu_btn.png', thread)
 
     # Make sure its inside the shared HUD start screen
     if not ensure_shared_feature_start_screen(thread):
@@ -758,15 +954,32 @@ def _top_left_panel_changed(before_img, after_img):
     return float(np.mean(diff)) >= 4.0
 
 
-def open_bubble_status_panel(thread):
+def open_bubble_status_panel(thread, conservative=False):
     """
     Open the City Buff screen from the top-left HUD circle.
 
     Returns the screenshot after the screen opens, or None on failure.
     """
-    if not ensure_shared_feature_start_screen(thread):
-        _nav_log(thread, "Cannot open bubble status panel without the shared start screen.", "warning")
-        return None
+    if conservative:
+        src_img = thread.capture_and_validate_screen(ads=False)
+        if src_img is None:
+            return None
+
+        ac_btn_img = _load_template('assets/540p/other/explore_alliance_city_btn.png', thread)
+        wm_btn_img = _load_template('assets/540p/other/explore_world_map_btn.png', thread)
+        alliance_btn_img = _load_template('assets/540p/other/alliance_btn.png', thread)
+        if ac_btn_img is None or wm_btn_img is None or alliance_btn_img is None:
+            return None
+
+        on_city = is_template_match(src_img, wm_btn_img)
+        on_world = bool(template_match_coordinates(src_img, ac_btn_img)) and is_template_match(src_img, alliance_btn_img)
+        if not (on_city or on_world):
+            _nav_log(thread, "Skipping bubble status open (conservative mode): not on shared start screen.", "debug")
+            return None
+    else:
+        if not ensure_shared_feature_start_screen(thread):
+            _nav_log(thread, "Cannot open bubble status panel without the shared start screen.", "warning")
+            return None
 
     before_img = thread.capture_and_validate_screen(ads=False)
     if before_img is None:
@@ -843,26 +1056,36 @@ def _get_fixed_bubble_row_button_region(thread, src_img, bubble_type_id):
         img_h, img_w = working_img.shape[:2]
         row_slot = 3
 
-    row_centers = {
-        1: int(img_h * 0.318),
-        2: int(img_h * 0.533),
-        3: int(img_h * 0.748),
-    }
-    center_y = row_centers.get(row_slot)
+    # Calibrated for 540x960 Use Item screen where rows have equal vertical spacing.
+    # 8h row center is the anchor; other rows are derived by fixed pitch.
+    row1_center_y = int(img_h * 0.322)
+    row_pitch = int(img_h * 0.203)
+    center_y = row1_center_y + (row_slot - 1) * row_pitch
     if center_y is None:
         return working_img, None
 
-    row_y1 = max(center_y - int(img_h * 0.055), 0)
-    row_y2 = min(center_y + int(img_h * 0.055), img_h)
-    btn_x1 = min(max(int(img_w * 0.72), 0), img_w - 1)
-    btn_x2 = min(int(img_w * 0.97), img_w)
+    # Use-button area on each row (right side green button).
+    btn_center_x = int(img_w * 0.842)
+    btn_half_w = int(img_w * 0.108)
+    btn_half_h = int(img_h * 0.039)
+
+    row_y1 = max(center_y - btn_half_h, 0)
+    row_y2 = min(center_y + btn_half_h, img_h)
+    btn_x1 = max(btn_center_x - btn_half_w, 0)
+    btn_x2 = min(btn_center_x + btn_half_w, img_w)
+
+    _nav_log(
+        thread,
+        f"Use Item fixed-row target: bubble_type_id={bubble_type_id} row_slot={row_slot} "
+        f"btn_center=({btn_center_x},{center_y}) roi=({btn_x1},{row_y1})-({btn_x2},{row_y2})",
+        "debug",
+    )
+
     return working_img, (row_y1, row_y2, btn_x1, btn_x2)
 
 
 def _select_and_use_bubble_from_current_screen(thread, controls):
     from core.services.bubble_service import get_all_bubble_types
-
-    use_btn = _load_template('assets/540p/bubbles/use_btn.png', thread)
 
     bubble_type_id = controls.get('bubble_type_id')
     bubble = next((b for b in get_all_bubble_types() if b.id == bubble_type_id), None)
@@ -886,21 +1109,6 @@ def _select_and_use_bubble_from_current_screen(thread, controls):
     if button_roi is None or button_roi.size == 0:
         _nav_log(thread, "Bubble action button area is empty.", "warning")
         return False
-
-    use_match = template_match_coordinates(button_roi, use_btn, threshold=0.78) if use_btn is not None else None
-    if use_match:
-        thread.adb_manager.tap(btn_x1 + use_match[0], row_y1 + use_match[1])
-        time.sleep(1)
-        # Confirm the activation dialogs (1-2 dialogs depending on active bubble state)
-        if confirm_bubble_activation_dialogs(thread, max_dialogs=2):
-            if verify_bubble_activation_remaining_time(thread, bubble, previous_minutes=previous_minutes, previous_text=previous_text):
-                _nav_log(thread, f"Bubble '{bubble.name}' activated successfully after confirming dialogs.")
-                return True
-            _nav_log(thread, f"Bubble '{bubble.name}' dialogs confirmed, but remaining-time verification failed.", "warning")
-            return False
-        else:
-            _nav_log(thread, f"Bubble '{bubble.name}' Use button tapped but dialog confirmation failed.", "warning")
-            return False
 
     from pytesseract import pytesseract
 
@@ -941,6 +1149,20 @@ def _select_and_use_bubble_from_current_screen(thread, controls):
         else:
             _nav_log(thread, f"Bubble '{bubble.name}' gem-purchase tapped but dialog confirmation failed.", "warning")
             return False
+
+    # Fixed-position fallback: still tap the action button center.
+    # Use Item rows and action-button placement are stable on 540x960.
+    center_x = (btn_x1 + btn_x2) // 2
+    center_y = (row_y1 + row_y2) // 2
+    thread.adb_manager.tap(center_x, center_y)
+    _nav_log(thread, f"Bubble '{bubble.name}' action button tapped via fixed-position fallback.")
+    time.sleep(1)
+    if confirm_bubble_activation_dialogs(thread, max_dialogs=2):
+        if verify_bubble_activation_remaining_time(thread, bubble, previous_minutes=previous_minutes, previous_text=previous_text):
+            _nav_log(thread, f"Bubble '{bubble.name}' activated successfully after fixed-position confirmation.")
+            return True
+        _nav_log(thread, f"Bubble '{bubble.name}' fixed-position dialogs confirmed, but remaining-time verification failed.", "warning")
+        return False
 
     _nav_log(thread, f"No usable action detected for bubble '{bubble.name}'. OCR: {button_text}", "warning")
     return False
@@ -1037,31 +1259,36 @@ def navigate_to_bubble_use(thread, controls):
         # Step 2: Open bubble selection screen
         if not open_bubble_selection_screen(thread, panel_img=panel_img):
             _nav_log(thread, "Failed to open bubble selection screen; retreating to City Buff.", "warning")
-            tap_back_button_full_screen(thread)
+            tap_back_button_full_screen(thread, back_icon_coords=PANEL_BACK_ICON_COORDS)
+            time.sleep(0.5)
+            return False
+        
+        # Step 2b: VALIDATE we're actually on Use Item screen before proceeding
+        use_item_img = thread.capture_and_validate_screen(ads=False)
+        if use_item_img is None or not _is_use_item_screen(use_item_img):
+            _nav_log(thread, "Failed to validate Use Item screen after open; retreating.", "warning")
+            tap_back_button_full_screen(thread, back_icon_coords=PANEL_BACK_ICON_COORDS)
+            time.sleep(0.5)
+            tap_back_button_full_screen(thread, back_icon_coords=PANEL_BACK_ICON_COORDS)
             time.sleep(0.5)
             return False
         
         # Step 3: Select and use the bubble
         if _select_and_use_bubble_from_current_screen(thread, controls):
+            retreat_bubble_panels(thread, steps=2)
             return True
         
         # If bubble selection failed, retreat from Use Item screen
         _nav_log(thread, "Failed to select bubble; retreating from Use Item screen.", "warning")
-        tap_back_button_full_screen(thread)
-        time.sleep(0.5)
-        
-        # Attempt retreat from City Buff as well
-        tap_back_button_full_screen(thread)
-        time.sleep(0.5)
-        
-        # Fall back to legacy method
-        _nav_log(thread, "Falling back to legacy inventory/protection bubble navigation.", "warning")
-        return _navigate_to_bubble_use_via_inventory(thread, controls)
+        retreat_bubble_panels(thread, steps=2)
+
+        # No legacy fallback: renewal flow is fixed-position from Use Item rows.
+        return False
     except Exception as e:
         _nav_log(thread, f"navigate_to_bubble_use error: {e}", "warning")
         # Attempt retreat on exception
         try:
-            tap_back_button_full_screen(thread)
+            retreat_bubble_panels(thread, steps=2)
         except:
             pass
         return False

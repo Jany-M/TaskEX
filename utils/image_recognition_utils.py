@@ -42,6 +42,11 @@ def template_match_coordinates(src_image, template_image, return_center=True, co
         src_image = cv2.cvtColor(src_image, cv2.COLOR_BGR2GRAY)
         template_image = cv2.cvtColor(template_image, cv2.COLOR_BGR2GRAY)
 
+    src_h, src_w = src_image.shape[:2]
+    tpl_h, tpl_w = template_image.shape[:2]
+    if tpl_h > src_h or tpl_w > src_w:
+        return None
+
     result = cv2.matchTemplate(src_image, template_image, cv2.TM_CCOEFF_NORMED)
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
@@ -73,6 +78,11 @@ def template_match_coordinates_all(src_image, template_image, return_center=Fals
     if convert_gray:
         src_image = cv2.cvtColor(src_image, cv2.COLOR_BGR2GRAY)
         template_image = cv2.cvtColor(template_image, cv2.COLOR_BGR2GRAY)
+
+    src_h, src_w = src_image.shape[:2]
+    tpl_h, tpl_w = template_image.shape[:2]
+    if tpl_h > src_h or tpl_w > src_w:
+        return []
 
     # Perform template matching
     result = cv2.matchTemplate(src_image, template_image, cv2.TM_CCOEFF_NORMED)
