@@ -1,6 +1,8 @@
 import time
 import os
 import traceback
+import weakref
+import re
 
 import cv2
 import numpy as np
@@ -19,6 +21,30 @@ import logging
 
 from utils.get_controls_info import get_game_settings_controls, get_all_feature_controls, get_auto_bubble_controls
 from utils.image_recognition_utils import is_template_match, template_match_coordinates
+
+
+class InstanceConsoleHandler(logging.Handler):
+    """Log handler that writes to the current instance console widget."""
+
+    def __init__(self, main_window, index: int):
+        super().__init__()
+        self.main_window_ref = weakref.ref(main_window)
+        self.index = index
+
+    def emit(self, record):
+        main_window = self.main_window_ref()
+        if main_window is None:
+            return
+
+        try:
+            msg = self.format(record)
+            console_widget = getattr(main_window.widgets, f"console_{self.index}", None)
+            if console_widget is None:
+                return
+            console_widget.append(msg)
+        except Exception:
+            # Never break worker threads because UI logging failed.
+            pass
 
 
 class EmulatorThread(QThread):
@@ -51,36 +77,91 @@ class EmulatorThread(QThread):
                                                                                        f"emu_name_{self.index}").text()
         logger = logging.getLogger(logger_name)
         logger.setLevel(logging.DEBUG)
+        logger.propagate = False
 
-        # Ensure handlers are not duplicated
-        if not logger.handlers:
-            # File handler setup
+        self.console_handler = None
+
+        # Remove stale non-file handlers from previous thread lifecycles.
+        for handler in list(logger.handlers):
+            is_file_handler = isinstance(handler, logging.FileHandler)
+            is_console_handler = isinstance(handler, InstanceConsoleHandler)
+            if is_file_handler or is_console_handler:
+                continue
+            logger.removeHandler(handler)
+            try:
+                handler.close()
+            except Exception:
+                pass
+
+        file_formatter = logging.Formatter('[%(name)s] [%(asctime)s] [%(levelname)s]: %(message)s')
+
+        # Ensure file handler exists exactly once.
+        file_handler = next((h for h in logger.handlers if isinstance(h, logging.FileHandler)), None)
+        if file_handler is None:
             logs_dir = "logs"
             os.makedirs(logs_dir, exist_ok=True)
             log_file_path = os.path.join(logs_dir, "logs.log")
             if not os.path.exists(log_file_path):
                 with open(log_file_path, "w") as f:
-                    pass  # Create an empty log file
+                    pass
             file_handler = logging.FileHandler(log_file_path, mode="a")
-            file_formatter = logging.Formatter('[%(name)s] [%(asctime)s] [%(levelname)s]: %(message)s')
-            file_handler.setFormatter(file_formatter)
-            file_handler.setLevel(logging.DEBUG if get_debug_mode() else logging.ERROR)
             logger.addHandler(file_handler)
+        file_handler.setFormatter(file_formatter)
+        # Keep full fidelity in file logs; console is filtered separately.
+        file_handler.setLevel(logging.DEBUG)
 
-            # QTextEdit handler setup
-            console_widget = getattr(self.main_window.widgets, f"console_{self.index}", None)
-            if console_widget:
-                class QTextEditHandler(logging.Handler):
-                    def emit(self, record):
-                        msg = self.format(record)
-                        console_widget.append(msg)
+        # Ensure console handler exists and targets current instance index.
+        console_handler = next((h for h in logger.handlers if isinstance(h, InstanceConsoleHandler)), None)
+        if console_handler is None:
+            console_handler = InstanceConsoleHandler(self.main_window, self.index)
+            logger.addHandler(console_handler)
+        else:
+            console_handler.main_window_ref = weakref.ref(self.main_window)
+            console_handler.index = self.index
 
-                self.console_handler = QTextEditHandler()
-                self.console_handler.setFormatter(file_formatter)
-                self.console_handler.setLevel(logging.DEBUG if get_debug_mode() else logging.ERROR)
-                logger.addHandler(self.console_handler)
+        console_handler.setFormatter(file_formatter)
+        # Console should remain readable in both modes.
+        console_handler.setLevel(logging.INFO)
+        self.console_handler = console_handler
 
         return logger
+
+    def _is_high_signal_info(self, message: str) -> bool:
+        """Keep only key milestone info messages in the in-game console."""
+        msg = (message or "").strip()
+        if not msg:
+            return False
+
+        # Explicit high-signal markers.
+        prefixes = (
+            "[Auto-Bubble] Check started",
+            "[Auto-Bubble] Checked - Time until renewal",
+            "[Auto-Bubble] Bubble active",
+            "[Auto-Bubble] [Renewal Path] Threshold met",
+            "Joined Monster Rally",
+            "[Orchestrator] Startup:",
+            "[Orchestrator] Auto-bubble bootstrap check",
+            "Validation passed. Device is now connected.",
+        )
+        if any(msg.startswith(prefix) for prefix in prefixes):
+            return True
+
+        # Keep explicit failure/critical outcomes at info only if authored that way.
+        keyword_hits = (
+            "Bubble activated successfully",
+            "Stamina prompt handled and rally flow recovered",
+        )
+        return any(key in msg for key in keyword_hits)
+
+    def _normalize_log_level(self, message: str, level: str) -> str:
+        normalized = (level or "info").lower()
+        if normalized != "info":
+            return normalized
+
+        # Demote noisy informational traces to debug so console remains readable.
+        if self._is_high_signal_info(message):
+            return "info"
+        return "debug"
 
     def log_message(self, message: str, level: str = "info", console: bool = True, force_console: bool = False):
         """
@@ -91,6 +172,8 @@ class EmulatorThread(QThread):
         :param console: Whether to log to the QTextEdit console.
         :param force_console: Force the message to appear in instance console even when handler level is restrictive.
         """
+        level = self._normalize_log_level(message, level)
+
         if force_console:
             console = True
 
@@ -101,7 +184,11 @@ class EmulatorThread(QThread):
         previous_console_level = None
         if force_console and hasattr(self, 'console_handler'):
             previous_console_level = self.console_handler.level
-            self.console_handler.setLevel(logging.INFO)
+            # In debug mode, forced debug lines can still be shown when explicitly requested.
+            if get_debug_mode() and level == "debug":
+                self.console_handler.setLevel(logging.DEBUG)
+            else:
+                self.console_handler.setLevel(logging.INFO)
 
         # Dynamically get the log method based on the level
         log_method = getattr(self.logger, level.lower(), self.logger.info)

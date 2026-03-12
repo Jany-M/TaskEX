@@ -172,26 +172,30 @@ class _StreamTee(io.TextIOBase):
 
 
 def _setup_runtime_logging():
-    base_dir = _runtime_base_dir()
-    logs_dir = base_dir / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = logs_dir / f"taskex_runtime_{timestamp}.log"
-
     logger = logging.getLogger("taskex_boot")
     logger.setLevel(logging.DEBUG)
     if not logger.handlers:
+        logger.addHandler(logging.NullHandler())
+
+    log_file = None
+    if get_debug_mode():
+        base_dir = _runtime_base_dir()
+        logs_dir = base_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = logs_dir / f"taskex_runtime_{timestamp}.log"
+
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
         logger.addHandler(file_handler)
 
-    should_tee_streams = getattr(sys, "frozen", False) or os.environ.get("TASKEX_LIVE_LOG", "0") == "1"
-    if should_tee_streams:
-        log_stream = open(log_file, "a", encoding="utf-8", buffering=1)
-        sys.stdout = _StreamTee(sys.stdout, log_stream)
-        sys.stderr = _StreamTee(sys.stderr, log_stream)
+        should_tee_streams = getattr(sys, "frozen", False) or os.environ.get("TASKEX_LIVE_LOG", "0") == "1"
+        if should_tee_streams:
+            log_stream = open(log_file, "a", encoding="utf-8", buffering=1)
+            sys.stdout = _StreamTee(sys.stdout, log_stream)
+            sys.stderr = _StreamTee(sys.stderr, log_stream)
 
     def _handle_uncaught_exception(exc_type, exc_value, exc_traceback):
         logger.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
@@ -201,7 +205,8 @@ def _setup_runtime_logging():
             pass
 
     sys.excepthook = _handle_uncaught_exception
-    logger.info("Runtime logging initialized: %s", log_file)
+    if log_file is not None:
+        logger.info("Runtime logging initialized: %s", log_file)
     return logger, log_file
 
 
@@ -350,5 +355,6 @@ if __name__ == "__main__":
 
     window = MainWindow(splash)  # Pass the splash screen instance to the main window
     splash.show()  # Ensure the splash screen is on top during initialization
-    runtime_logger.info("Splash shown; runtime log: %s", runtime_log_file)
+    if runtime_log_file is not None:
+        runtime_logger.info("Splash shown; runtime log: %s", runtime_log_file)
     sys.exit(app.exec())

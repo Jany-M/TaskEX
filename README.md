@@ -189,6 +189,19 @@ Default behavior:
 
 These values are persisted per instance. Shared profile settings still provide defaults, and instance-specific runtime overrides are saved independently so restarts preserve each emulator's own mode.
 
+### Auto-Bubble Timer Check Scheduling
+
+When Auto Bubble successfully reads an active protection timer, it caches the expiration time and pauses further timer checks until the configured renewal threshold window is near.
+
+- Example: if bubble time left is 353 minutes and renewal threshold is 60 minutes, the next timer check is scheduled close to `353 - 60` minutes later (with a small safety buffer).
+- This prevents unnecessary screen checks while protection is far from renewal.
+- A fresh read still happens at startup bootstrap and when forced refresh/recovery paths are triggered.
+
+### Runtime Logs
+
+- `logs/taskex_runtime_*.log` files are created only when `TASKEX_DEBUG=1`.
+- Instance logs continue writing to `logs/logs.log`.
+
 ## Global Template Manager Shortcuts
 
 You can open template configuration dialogs from anywhere in the app:
