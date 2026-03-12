@@ -315,11 +315,16 @@ def press_back_with_exit_guard(thread, wait_seconds=0.8):
     normal in-game screen unwinding.
     """
     try:
+        if hasattr(thread, 'cache') and isinstance(thread.cache, dict):
+            thread.cache['nav_last_back_exit_prompt'] = False
+
         thread.adb_manager.press_back()
         time.sleep(wait_seconds)
 
         screen = thread.capture_and_validate_screen(ads=False)
         if screen is not None and tap_dialog_cancel_button(thread, screen=screen):
+            if hasattr(thread, 'cache') and isinstance(thread.cache, dict):
+                thread.cache['nav_last_back_exit_prompt'] = True
             _nav_log(thread, "Detected exit-game prompt after BACK; tapped Cancel.", "warning")
             return True
         return True
@@ -737,13 +742,23 @@ def navigate_generals_window(thread):
     return False
 
 def navigate_join_rally_window(thread):
+    nav_state = thread.cache.setdefault('nav_state', {}) if hasattr(thread, 'cache') else {}
+    retry_after = float(nav_state.get('join_rally_nav_retry_after', 0) or 0)
+    now = time.time()
+    if now < retry_after:
+        remaining = max(1, int(retry_after - now))
+        _nav_log(thread, f"Join Rally navigation cooldown active ({remaining}s) after previous recovery failure.")
+        return False
+
     # Check if it already opened the right window by checking for the battle logs button and verify the options selected
     inside_alliance_war = ensure_and_setup_pvp_war_window_screen(thread)
     # Else, then make sure the game screen is inside alliance city or world map
     if inside_alliance_war:
+        nav_state.pop('join_rally_nav_retry_after', None)
         _nav_log(thread, "Already inside Alliance War window.")
         return True
     elif not ensure_shared_feature_start_screen(thread):
+        nav_state['join_rally_nav_retry_after'] = time.time() + 20
         _nav_log(thread, "Cannot ensure Alliance City or World Map before navigating to Join Rally.", "warning")
         return False
     # Take the ss
@@ -787,8 +802,10 @@ def navigate_join_rally_window(thread):
     time.sleep(1)
     # src_img = thread.capture_and_validate_screen()
     if ensure_and_setup_pvp_war_window_screen(thread):
+        nav_state.pop('join_rally_nav_retry_after', None)
         return True
     else:
+        nav_state['join_rally_nav_retry_after'] = time.time() + 20
         _nav_log(thread, "Alliance War option tapped, but final window verification failed.", "warning")
         return False
 
@@ -879,9 +896,14 @@ def ensure_shared_feature_start_screen(thread, allow_city=True, allow_world_map=
 
     counter = 0
     max_attempts = 15  # Prevent infinite loops
+    repeated_exit_prompt_back = 0
 
     while counter < max_attempts:
-        src_img = thread.capture_and_validate_screen()
+        src_img = thread.capture_and_validate_screen(ads=False)
+        if src_img is None:
+            counter += 1
+            time.sleep(0.3)
+            continue
 
         # Check Alliance City
         if allow_city:
@@ -904,8 +926,29 @@ def ensure_shared_feature_start_screen(thread, allow_city=True, allow_world_map=
                 time.sleep(4)
                 continue
 
+        # Try closing top-right popup/modals before fallback BACK.
+        if find_and_close_popup_via_red_x(thread, max_attempts=1):
+            counter += 1
+            repeated_exit_prompt_back = 0
+            time.sleep(0.3)
+            continue
+
         # If neither is detected, press back
         press_back_with_exit_guard(thread)
+        if bool(getattr(thread, 'cache', {}).get('nav_last_back_exit_prompt', False)):
+            repeated_exit_prompt_back += 1
+        else:
+            repeated_exit_prompt_back = 0
+
+        # Guard against getting stuck at HUD where BACK always opens exit prompt.
+        if repeated_exit_prompt_back >= 3:
+            _nav_log(
+                thread,
+                "BACK repeatedly triggered exit prompt while trying to recover shared start screen; aborting this recovery cycle.",
+                "warning",
+            )
+            return False
+
         counter += 1
 
     # Failed to ensure desired screen
