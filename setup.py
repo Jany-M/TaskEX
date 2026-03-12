@@ -46,6 +46,8 @@ def _run_pyinstaller_build(debug_console: bool = False):
         f"--add-data={ROOT / 'Tesseract-OCR'};Tesseract-OCR",
         f"--add-data={ROOT / 'assets'};assets",
         f"--add-data={ROOT / 'db' / 'task_ex.db'};db",
+        f"--add-data={ROOT / 'alembic'};alembic",
+        f"--add-data={ROOT / 'alembic.ini'};.",
         "--hidden-import=sqlalchemy.dialects.sqlite",
         str(ROOT / "main.py"),
     ]

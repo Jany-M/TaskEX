@@ -87,6 +87,16 @@ python setup.py build-debug
 - Keep required runtime folders/files available during build (already configured in setup): `assets/`, `platform-tools/`, `Tesseract-OCR/`, and `db/task_ex.db`.
 - If you specifically need x64 output, make sure your Python interpreter is x64 before building.
 
+### Database Persistence and Migrations
+
+- Build upgrades do not reset user data. In packaged (`.exe`) runs, the app uses a persistent database under `%LOCALAPPDATA%/TaskEnforcerX/task_ex.db`.
+- On first run only (when no persistent DB exists), the bundled `db/task_ex.db` is copied to that location.
+- On each startup, the app attempts to run Alembic migrations to `head`.
+- Before migrations, the app creates a timestamped backup of the existing DB in `%LOCALAPPDATA%/TaskEnforcerX/backups/`.
+- SQLAlchemy `create_all` still runs after migrations to ensure missing tables are created.
+
+If you add schema changes, create a new Alembic revision in `alembic/versions/` so upgrades can be applied without losing existing user data.
+
 ## Regenerate UI and Resources
 
 Generated files should not be edited directly. Update source files first, then regenerate.
@@ -177,7 +187,7 @@ Default behavior:
 - Join Rally: enabled + `Manual start/stop`
 - Auto Gather: enabled + `Manual start/stop`
 
-These values are saved in profile settings per instance.
+These values are persisted per instance. Shared profile settings still provide defaults, and instance-specific runtime overrides are saved independently so restarts preserve each emulator's own mode.
 
 ## Global Template Manager Shortcuts
 

@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 from datetime import timedelta, datetime
+from config.settings import get_assets_dir
 
 
 def _log_capture_debug(message: str) -> None:
@@ -51,10 +52,10 @@ def copy_image_to_preview(file, file_name):
         return
 
     # Get the preview folder path
-    preview_path = os.path.join('assets', 'preview')
+    preview_path = get_assets_dir() / "preview"
 
     # Define the new destination path for the file
-    destination_path = os.path.join(preview_path, file_name)
+    destination_path = os.path.join(str(preview_path), file_name)
     try:
         src = os.path.abspath(str(file))
         dst = os.path.abspath(destination_path)
@@ -81,10 +82,10 @@ def copy_image_to_template(file, file_name):
         return
 
     # Get the template folder path
-    template_path = os.path.join('assets', '540p', 'monsters')
+    template_path = get_assets_dir() / "540p" / "monsters"
 
     # Define the new destination path for the file
-    destination_path = os.path.join(template_path, file_name)
+    destination_path = os.path.join(str(template_path), file_name)
     try:
         src = os.path.abspath(str(file))
         dst = os.path.abspath(destination_path)

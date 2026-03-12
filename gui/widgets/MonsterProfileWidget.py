@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QWidget, QPushButton
 from db.db_setup import get_session
 from db.models import BossMonster, MonsterLevel, MonsterImage
 from gui.generated.monster_profile import Ui_Monster_Profile
+from config.settings import get_assets_dir
 from utils.constants_util import logic_colors
 from utils.dialog_utils import show_confirmation_dialog
 
@@ -23,18 +24,18 @@ class MonsterProfileWidget(QWidget):
 
         # Set widget object name
         self.setObjectName(f"monster_profile_{self.data.id}")
-        self.preview_path = os.path.join( 'assets', 'preview')
+        self.preview_path = get_assets_dir() / "preview"
 
         # Setup Monster Preview
-        monster_preview = os.path.join(str(self.preview_path), self.data.monster_image.preview_image)
+        monster_preview = self.preview_path / self.data.monster_image.preview_image
         # Determine which preview image to use
         if file_path and os.path.exists(file_path):
             # Use the provided custom file path if it exists
             monster_preview = file_path
-        elif not os.path.isfile(monster_preview):
+        elif not monster_preview.is_file():
             # Use the default preview image
-            monster_preview = os.path.join(str(self.preview_path), "default_preview.png")
-        pixmap = QPixmap(monster_preview)
+            monster_preview = self.preview_path / "default_preview.png"
+        pixmap = QPixmap(str(monster_preview))
         if pixmap.isNull():
             self.ui.monster_icon_label.clear()
         else:

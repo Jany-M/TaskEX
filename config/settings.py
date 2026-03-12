@@ -75,6 +75,26 @@ def _get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def get_base_dir() -> Path:
+    """Public accessor for the application base directory."""
+    return _get_base_dir()
+
+
+def get_assets_dir() -> Path:
+    """Resolve assets directory for both dev and frozen executable modes."""
+    base_dir = _get_base_dir()
+    if getattr(sys, "frozen", False):
+        candidates = [
+            base_dir / "_internal" / "assets",
+            Path(getattr(sys, "_MEIPASS", "")) / "assets",
+            base_dir / "assets",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+    return base_dir / "assets"
+
+
 def _get_app_data_dir() -> Path:
     """Get the application data directory (AppData/Local for built exe, project root for dev)."""
     if getattr(sys, "frozen", False):
@@ -98,14 +118,20 @@ def _get_database_path() -> Path:
     
     # If running as exe and database doesn't exist in AppData, try to copy bundled version
     if getattr(sys, "frozen", False) and not db_path.exists():
-        bundled_db = _get_base_dir() / "db" / "task_ex.db"
-        if bundled_db.exists():
-            try:
-                import shutil
-                shutil.copy2(bundled_db, db_path)
-            except Exception:
-                # If copy fails, database will be created fresh on init_db()
-                pass
+        candidates = [
+            _get_base_dir() / "_internal" / "db" / "task_ex.db",
+            Path(getattr(sys, "_MEIPASS", "")) / "db" / "task_ex.db",
+            _get_base_dir() / "db" / "task_ex.db",
+        ]
+        for bundled_db in candidates:
+            if bundled_db.exists():
+                try:
+                    import shutil
+                    shutil.copy2(bundled_db, db_path)
+                    break
+                except Exception:
+                    # If copy fails, database will be created fresh on init_db()
+                    continue
     
     return db_path
 
