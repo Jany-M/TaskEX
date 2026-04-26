@@ -329,7 +329,7 @@ QScrollBar:horizontal {
     border: none;
     background: rgb(52, 59, 72);
     height: 8px;
-    margin: 0px 21px 0 21px;
+    margin: 0px 0px 0px 0px;
 	border-radius: 0px;
 }
 QScrollBar::handle:horizontal {
@@ -367,7 +367,7 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal
 	border: none;
     background: rgb(52, 59, 72);
     width: 8px;
-    margin: 21px 0 21px 0;
+    margin: 0px 0px 0px 0px;
 	border-radius: 0px;
  }
  QScrollBar::handle:vertical {	

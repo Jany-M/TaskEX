@@ -70,9 +70,19 @@ pip install pyinstaller
 python setup.py build
 ```
 
+Or use one-click PowerShell script:
+```
+.\build-release.ps1
+```
+
 Optional: build a debug executable (with console + debug splash controls):
 ```
 python setup.py build-debug
+```
+
+Or use one-click PowerShell script:
+```
+.\build-debug.ps1
 ```
 
 ### Output

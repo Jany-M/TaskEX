@@ -6,7 +6,8 @@ import re
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, QObject, Slot, Qt
+from PySide6.QtGui import QTextCursor
 
 from config.settings import get_debug_mode
 from core.services.bm_monsters_service import start_simulate_monster_click, \
@@ -30,21 +31,53 @@ class InstanceConsoleHandler(logging.Handler):
         super().__init__()
         self.main_window_ref = weakref.ref(main_window)
         self.index = index
+        bridge = getattr(main_window, '_instance_console_bridge', None)
+        if bridge is None:
+            bridge = InstanceConsoleBridge(main_window)
+            setattr(main_window, '_instance_console_bridge', bridge)
+        self.bridge = bridge
 
     def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.bridge.append_log.emit(self.index, msg)
+        except Exception:
+            # Never break worker threads because UI logging failed.
+            pass
+
+
+class InstanceConsoleBridge(QObject):
+    """Marshals console updates from worker threads to the UI thread."""
+
+    append_log = Signal(int, str)
+
+    def __init__(self, main_window):
+        super().__init__(main_window)
+        self.main_window_ref = weakref.ref(main_window)
+        self.append_log.connect(self._append_to_widgets, Qt.ConnectionType.QueuedConnection)
+
+    @Slot(int, str)
+    def _append_to_widgets(self, index: int, msg: str):
         main_window = self.main_window_ref()
         if main_window is None:
             return
 
-        try:
-            msg = self.format(record)
-            console_widget = getattr(main_window.widgets, f"console_{self.index}", None)
+        widget_names = [
+            f"console_{index}",
+            f"console_full_{index}",
+        ]
+        for widget_name in widget_names:
+            console_widget = getattr(main_window.widgets, widget_name, None)
             if console_widget is None:
-                return
+                continue
+
             console_widget.append(msg)
-        except Exception:
-            # Never break worker threads because UI logging failed.
-            pass
+            # Keep the newest line fully visible after appending.
+            console_widget.moveCursor(QTextCursor.End)
+            console_widget.ensureCursorVisible()
+            v_scroll = console_widget.verticalScrollBar()
+            if v_scroll is not None:
+                v_scroll.setValue(v_scroll.maximum())
 
 
 class EmulatorThread(QThread):
@@ -139,6 +172,22 @@ class EmulatorThread(QThread):
             "[Auto-Bubble] Bubble active",
             "[Auto-Bubble] [Renewal Path] Threshold met",
             "Joined Monster Rally",
+            "[Join-Rally] Entered Alliance War screen",
+            "[Join-Rally] Scrolling to end of rally list",
+            "[Join-Rally] End of rally list reached",
+            "[Join-Rally] Starting to join rallies now",
+            "[Join-Rally] Rallies found",
+            "[Join-Rally] Tapping green Join button",
+            "[Join-Rally] Green Join button tapped. Waiting for March dialog",
+            "[Join-Rally] Handing off to March dialog handler.",
+            "[Join-Rally] Returned to rally list after March confirm; treating join as successful.",
+            "[Join-Rally] March confirm outcome unclear, but March dialog is no longer visible; treating join as successful.",
+            "[Join-Rally] Rally navigation unavailable. Cooling off for",
+            "[Join-Rally] Cooling off for",
+            "[Join-Rally] No visible valid rallies found across the current scan sweep",
+            "[Join-Rally] Cool-off finished. Resetting list position and rescanning the full rally list.",
+            "[Join-Rally] Full rally scan found no visible valid rallies",
+            "[Join-Rally] All scanned rallies are temporarily unjoinable",
             "[Orchestrator] Startup:",
             "[Orchestrator] Auto-bubble bootstrap check",
             "Validation passed. Device is now connected.",
@@ -273,6 +322,17 @@ class EmulatorThread(QThread):
             # Perform the operation based on the type
             if self.operation_type == "emu":
                 self.game_settings = get_game_settings_controls(self.main_window,self.index)
+                kick_reload_enabled = bool(self.game_settings.get('kick_reload_enabled', True))
+                try:
+                    kick_reload_minutes = int(self.game_settings.get('kick_reload', 0) or 0)
+                except Exception:
+                    kick_reload_minutes = 0
+                state_label = "Enabled" if kick_reload_enabled else "Disabled"
+                self.log_message(
+                    f"[Orchestrator] Kick & Reload: {state_label} ({kick_reload_minutes} min)",
+                    "info",
+                    force_console=True,
+                )
                 self.run_emulator_instance()
             elif self.operation_type == "scan_general":
                 start_scan_generals(self)
@@ -305,6 +365,20 @@ class EmulatorThread(QThread):
     def thread_status(self):
         return self._running
 
+    @staticmethod
+    def _is_feature_runtime_enabled(feature_controls, default_mode="off"):
+        if not isinstance(feature_controls, dict):
+            return False
+        if not feature_controls.get('enabled', False):
+            return False
+
+        mode = feature_controls.get('service_mode', default_mode)
+        if mode == 'auto':
+            return True
+        if mode == 'manual':
+            return bool(feature_controls.get('manual_running', False))
+        return False
+
     def is_auto_bubble_priority_due(self):
         """
         Returns True when auto-bubble is enabled and the cached remaining time
@@ -315,7 +389,7 @@ class EmulatorThread(QThread):
         """
         try:
             controls = get_auto_bubble_controls(self.main_window, self.index)
-            if not controls.get('enabled', False):
+            if not self._is_feature_runtime_enabled(controls, default_mode='auto'):
                 return False
 
             state = self.cache.get('auto_bubble_state', {})
@@ -402,19 +476,10 @@ class EmulatorThread(QThread):
                 )
                 return False
 
-        def _should_run(feature, default_mode="off"):
-            if not feature.get('enabled', False):
-                return False
-            mode = feature.get('service_mode', default_mode)
-            if mode == 'auto':
-                return True
-            if mode == 'manual':
-                return bool(feature.get('manual_running', False))
-            return False
-
         # Always begin each emulator thread with a fresh bubble state cache.
         reset_auto_bubble_state(self, reason="thread start")
         bubble_bootstrap_done = False
+        auto_bubble_runtime_enabled = False
         startup_prepared = False
         no_activity_stop_checked = False
         startup_ts = time.time()
@@ -439,8 +504,8 @@ class EmulatorThread(QThread):
                 # Use a grace window + repeated confirmation so profile load timing does not cause false exits.
                 if bubble_bootstrap_done and not no_activity_stop_checked:
                     if time.time() - startup_ts >= 10:
-                        auto_gather_enabled = _should_run(auto_gather, default_mode='manual')
-                        join_rally_enabled = _should_run(join_rally_settings, default_mode='manual') and bool(join_rally.get('data'))
+                        auto_gather_enabled = self._is_feature_runtime_enabled(auto_gather, default_mode='manual')
+                        join_rally_enabled = self._is_feature_runtime_enabled(join_rally_settings, default_mode='manual') and bool(join_rally.get('data'))
 
                         if not auto_gather_enabled and not join_rally_enabled:
                             no_activity_confirm_count += 1
@@ -457,7 +522,8 @@ class EmulatorThread(QThread):
                             no_activity_confirm_count = 0
 
                 bubble_attempted = False
-                if _should_run(auto_bubble, default_mode='auto'):
+                bubble_runtime_now = self._is_feature_runtime_enabled(auto_bubble, default_mode='auto')
+                if bubble_runtime_now:
                     # First action on startup: force a fresh timer read before any other feature runs.
                     if not bubble_bootstrap_done:
                         self.log_message(
@@ -474,11 +540,16 @@ class EmulatorThread(QThread):
                     if bubble_attempted:
                         time.sleep(0.5)
                         continue
+                elif auto_bubble_runtime_enabled:
+                    reset_auto_bubble_state(self, reason="runtime mode disabled")
+                    bubble_bootstrap_done = False
 
-                if _should_run(auto_gather, default_mode='manual'):
+                auto_bubble_runtime_enabled = bubble_runtime_now
+
+                if self._is_feature_runtime_enabled(auto_gather, default_mode='manual'):
                     run_auto_gather_cycle(self)
 
-                if _should_run(join_rally_settings, default_mode='manual') and join_rally.get('data'):
+                if self._is_feature_runtime_enabled(join_rally_settings, default_mode='manual') and join_rally.get('data'):
                     run_join_rally_scan_pass(self)
 
                 time.sleep(1)
@@ -493,10 +564,16 @@ class EmulatorThread(QThread):
             src_img = self.adb_manager.take_screenshot()
             restart_img = cv2.imread("assets/540p/other/restart_btn.png")
             world_map_btn = cv2.imread("assets/540p/other/explore_world_map_btn.png")
-            if kick_timer and is_template_match(src_img, restart_img):
+            kick_reload_enabled = bool(self.game_settings.get('kick_reload_enabled', True))
+            try:
+                kick_reload_minutes = int(self.game_settings.get('kick_reload', 0) or 0)
+            except Exception:
+                kick_reload_minutes = 0
+
+            if kick_timer and kick_reload_enabled and kick_reload_minutes > 0 and is_template_match(src_img, restart_img):
                 # print("kick timer activated")
-                self.logger.info(f"Kick & Reload activated for {self.game_settings['kick_reload']} min(s)")
-                time.sleep(self.game_settings['kick_reload'] * 60)
+                self.logger.info(f"Kick & Reload activated for {kick_reload_minutes} min(s)")
+                time.sleep(kick_reload_minutes * 60)
                 # print("kick timer done")
                 self.logger.info("Kick timer done. Restart initiated")
                 # Restart the game

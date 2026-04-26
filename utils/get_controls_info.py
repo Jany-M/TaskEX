@@ -201,7 +201,11 @@ def get_join_rally_controls(main_window, index):
 def get_game_settings_controls(main_window,index):
 
     kick_reload_spinbox = getattr(main_window.widgets, f"kick_reload_spinbox___{index}")
-    game_settings = {'kick_reload':kick_reload_spinbox.value()}
+    kick_reload_enabled_checkbox = getattr(main_window.widgets, f"kick_reload_enabled___{index}", None)
+    game_settings = {
+        'kick_reload': kick_reload_spinbox.value(),
+        'kick_reload_enabled': bool(kick_reload_enabled_checkbox.isChecked()) if kick_reload_enabled_checkbox else True,
+    }
     return game_settings
 
 

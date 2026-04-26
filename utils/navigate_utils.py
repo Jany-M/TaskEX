@@ -756,6 +756,11 @@ def navigate_join_rally_window(thread):
     if inside_alliance_war:
         nav_state.pop('join_rally_nav_retry_after', None)
         _nav_log(thread, "Already inside Alliance War window.")
+        thread.log_message(
+            "[Join-Rally] Entered Alliance War screen (monster rally list).",
+            "info",
+            force_console=True,
+        )
         return True
     elif not ensure_shared_feature_start_screen(thread):
         nav_state['join_rally_nav_retry_after'] = time.time() + 20
@@ -776,6 +781,11 @@ def navigate_join_rally_window(thread):
         if not ensure_and_setup_pvp_war_window_screen(thread):
             _nav_log(thread, "Tapped Ongoing Rally but failed to verify/setup Alliance War window.", "warning")
             return False
+        thread.log_message(
+            "[Join-Rally] Entered Alliance War screen (monster rally list).",
+            "info",
+            force_console=True,
+        )
         return True
     # if no ongoing rally, manually navigate to the alliance war window
     _nav_log(thread, "Ongoing Rally button not found; attempting manual navigation via Alliance button.")
@@ -803,6 +813,11 @@ def navigate_join_rally_window(thread):
     # src_img = thread.capture_and_validate_screen()
     if ensure_and_setup_pvp_war_window_screen(thread):
         nav_state.pop('join_rally_nav_retry_after', None)
+        thread.log_message(
+            "[Join-Rally] Entered Alliance War screen (monster rally list).",
+            "info",
+            force_console=True,
+        )
         return True
     else:
         nav_state['join_rally_nav_retry_after'] = time.time() + 20

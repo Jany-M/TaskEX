@@ -219,7 +219,7 @@ class Ui_InstancePage(object):
 "    border: none;\n"
 "    background: rgb(52, 59, 72);\n"
 "    height: 8px;\n"
-"    margin: 0px 21px 0 21px;\n"
+"    margin: 0px 0px 0px 0px;\n"
 "	border-radius: 0px;\n"
 "}\n"
 "QScrollBar::handle:horizontal {\n"
@@ -231,7 +231,7 @@ class Ui_InstancePage(object):
                         "ar::add-line:horizontal {\n"
 "    border: none;\n"
 "    background: rgb(55, 63, 77);\n"
-"    width: 20px;\n"
+"    width: 0px;\n"
 "	border-top-right-radius: 4px;\n"
 "    border-bottom-right-radius: 4px;\n"
 "    subcontrol-position: right;\n"
@@ -240,7 +240,7 @@ class Ui_InstancePage(object):
 "QScrollBar::sub-line:horizontal {\n"
 "    border: none;\n"
 "    background: rgb(55, 63, 77);\n"
-"    width: 20px;\n"
+"    width: 0px;\n"
 "	border-top-left-radius: 4px;\n"
 "    border-bottom-left-radius: 4px;\n"
 "    subcontrol-position: left;\n"
@@ -258,7 +258,7 @@ class Ui_InstancePage(object):
 "	border: none;\n"
 "    background: rgb(52, 59, 72);\n"
 "    width: 8px;\n"
-"    margin: 21px 0 21px 0;\n"
+"    margin: 0px 0px 0px 0px;\n"
 "	border-radius: 0px;\n"
 " }\n"
 " QScrollBar::handle:vertical {	\n"
@@ -270,7 +270,7 @@ class Ui_InstancePage(object):
 " QScrollBar::add-line:vertical {\n"
 "     border: none;\n"
 "    background: rgb(55, 63, 77);\n"
-"     height: 20px;\n"
+"     height: 0px;\n"
 "	border-bottom-left-radius: 4px;\n"
 "    border-bottom-right-radius: 4px;\n"
 "     subcontrol-position: bottom;\n"
@@ -279,7 +279,7 @@ class Ui_InstancePage(object):
 " QScrollBar::sub-line:vertical {\n"
 "	border: none;\n"
 "    background: rgb(55, 63, 77);\n"
-"     height: 20px;\n"
+"     height: 0px;\n"
 "	border-top-left-radius: 4px;\n"
 "    border-top-right-radius: 4px;\n"
 "     subcontrol-position: top;\n"
@@ -474,6 +474,27 @@ class Ui_InstancePage(object):
         self.verticalLayout_4 = QVBoxLayout(self.groupBox)
         self.verticalLayout_4.setObjectName(u"verticalLayout_4")
         self.verticalLayout_4.setContentsMargins(11, 11, 11, 11)
+        self.log_header_ = QFrame(self.groupBox)
+        self.log_header_.setObjectName(u"log_header_")
+        self.log_header_.setFrameShape(QFrame.Shape.NoFrame)
+        self.log_header_.setFrameShadow(QFrame.Shadow.Raised)
+        self.horizontalLayout_16 = QHBoxLayout(self.log_header_)
+        self.horizontalLayout_16.setObjectName(u"horizontalLayout_16")
+        self.horizontalLayout_16.setContentsMargins(0, 0, 0, 0)
+        self.log_title_ = QLabel(self.log_header_)
+        self.log_title_.setObjectName(u"log_title_")
+
+        self.horizontalLayout_16.addWidget(self.log_title_)
+
+        self.open_log_tab_btn_ = QPushButton(self.log_header_)
+        self.open_log_tab_btn_.setObjectName(u"open_log_tab_btn_")
+        self.open_log_tab_btn_.setMinimumSize(QSize(100, 30))
+
+        self.horizontalLayout_16.addWidget(self.open_log_tab_btn_)
+
+
+        self.verticalLayout_4.addWidget(self.log_header_)
+
         self.console_ = QTextEdit(self.groupBox)
         self.console_.setObjectName(u"console_")
         self.console_.setStyleSheet(u"background-color: rgb(0,0,0);\n"
@@ -795,6 +816,12 @@ class Ui_InstancePage(object):
         self.horizontalLayout = QHBoxLayout(self.frame_15)
         self.horizontalLayout.setObjectName(u"horizontalLayout")
         self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
+        self.kick_reload_enabled___ = QCheckBox(self.frame_15)
+        self.kick_reload_enabled___.setObjectName(u"kick_reload_enabled___")
+        self.kick_reload_enabled___.setChecked(True)
+
+        self.horizontalLayout.addWidget(self.kick_reload_enabled___)
+
         self.label_5 = QLabel(self.frame_15)
         self.label_5.setObjectName(u"label_5")
 
@@ -907,6 +934,28 @@ class Ui_InstancePage(object):
         self.general_tab_ = QWidget()
         self.general_tab_.setObjectName(u"general_tab_")
         self.tabWidget.addTab(self.general_tab_, "")
+        self.log_tab_ = QWidget()
+        self.log_tab_.setObjectName(u"log_tab_")
+        self.verticalLayout_22 = QVBoxLayout(self.log_tab_)
+        self.verticalLayout_22.setObjectName(u"verticalLayout_22")
+        self.groupBox_7 = QGroupBox(self.log_tab_)
+        self.groupBox_7.setObjectName(u"groupBox_7")
+        self.verticalLayout_23 = QVBoxLayout(self.groupBox_7)
+        self.verticalLayout_23.setObjectName(u"verticalLayout_23")
+        self.verticalLayout_23.setContentsMargins(8, 8, 8, 8)
+        self.console_full_ = QTextEdit(self.groupBox_7)
+        self.console_full_.setObjectName(u"console_full_")
+        self.console_full_.setStyleSheet(u"background-color: rgb(0,0,0);\n"
+"font: 10pt \"Source Code Pro\";\n"
+"border-radius: 5px;")
+        self.console_full_.setReadOnly(True)
+
+        self.verticalLayout_23.addWidget(self.console_full_)
+
+
+        self.verticalLayout_22.addWidget(self.groupBox_7)
+
+        self.tabWidget.addTab(self.log_tab_, "")
         self.join_rally_tab_ = QWidget()
         self.join_rally_tab_.setObjectName(u"join_rally_tab_")
         self.verticalLayout_12 = QVBoxLayout(self.join_rally_tab_)
@@ -1270,6 +1319,8 @@ class Ui_InstancePage(object):
     def retranslateUi(self, InstancePage):
         InstancePage.setWindowTitle(QCoreApplication.translate("InstancePage", u"Form", None))
         self.groupBox.setTitle(QCoreApplication.translate("InstancePage", u"Console", None))
+        self.log_title_.setText(QCoreApplication.translate("InstancePage", u"Live Log", None))
+        self.open_log_tab_btn_.setText(QCoreApplication.translate("InstancePage", u"Open Log", None))
         self.config_panel_gb.setTitle(QCoreApplication.translate("InstancePage", u"Configuration Panel", None))
         self.emu_profile_.setPlaceholderText(QCoreApplication.translate("InstancePage", u"Choose a Profile", None))
         self.emu_name_.setPlaceholderText(QCoreApplication.translate("InstancePage", u"Emulator Name", None))
@@ -1296,6 +1347,7 @@ class Ui_InstancePage(object):
         self.save_profile_btn_.setText("")
         self.add_profile_btn_.setText("")
         self.game_settings_groupbox_.setTitle(QCoreApplication.translate("InstancePage", u"Game Settings", None))
+        self.kick_reload_enabled___.setText(QCoreApplication.translate("InstancePage", u"Enabled", None))
         self.label_5.setText(QCoreApplication.translate("InstancePage", u"Kick & Reload", None))
         self.kick_reload_spinbox___.setSuffix(QCoreApplication.translate("InstancePage", u"  Min(s)", None))
         self.add_break_checkbox___.setText(QCoreApplication.translate("InstancePage", u"Add Break (Local Time)", None))
@@ -1304,6 +1356,8 @@ class Ui_InstancePage(object):
         self.groupBox_2.setTitle(QCoreApplication.translate("InstancePage", u"Other Settings", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.run_tab_), QCoreApplication.translate("InstancePage", u"Run", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.general_tab_), QCoreApplication.translate("InstancePage", u"General", None))
+        self.groupBox_7.setTitle(QCoreApplication.translate("InstancePage", u"Instance Log", None))
+        self.tabWidget.setTabText(self.tabWidget.indexOf(self.log_tab_), QCoreApplication.translate("InstancePage", u"Log", None))
         self.skip_monsters_gb.setTitle(QCoreApplication.translate("InstancePage", u"Skip Monsters", None))
         self.groupBox_6.setTitle(QCoreApplication.translate("InstancePage", u"Join Settings", None))
         self.jr_auto_use_stamina___.setText(QCoreApplication.translate("InstancePage", u"Auto Use Stamina", None))

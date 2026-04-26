@@ -22,3 +22,5 @@ mcp-extensions/taskex.config.json
 adb.cmd
 db/task_ex - Copia.db
 /db/backups
+build-debug.ps1
+build-release.ps1

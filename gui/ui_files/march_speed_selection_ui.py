@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'march_speed_selection.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.8.1
+## Created by: Qt User Interface Compiler version 6.10.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -176,8 +176,8 @@ class Ui_MarchSpeedSelectionJRDialog(object):
 " }\n"
 " QScrollBar::sub-line:vertical {\n"
 "	border: none;\n"
-"    background: rgb"
-                        "(55, 63, 77);\n"
+"    background: r"
+                        "gb(55, 63, 77);\n"
 "     height: 20px;\n"
 "	border-top-left-radius: 4px;\n"
 "    border-top-right-radius: 4px;\n"
@@ -210,8 +210,8 @@ class Ui_MarchSpeedSelectionJRDialog(object):
 "	background-image: url(:/icons/images/icons/cil-check-alt.png);\n"
 "}\n"
 "\n"
-"/* //////////////////////////////////"
-                        "///////////////////////////////////////////////////////////////\n"
+"/* ////////////////////////////////"
+                        "/////////////////////////////////////////////////////////////////\n"
 "RadioButton */\n"
 "QRadioButton::indicator {\n"
 "    border: 3px solid rgb(52, 59, 72);\n"
@@ -245,8 +245,8 @@ class Ui_MarchSpeedSelectionJRDialog(object):
 "	subcontrol-position: top right;\n"
 "	width: 25px; \n"
 "	border-left-width: 3px;\n"
-"	border-left-color: rgba(39, 44,"
-                        " 54, 150);\n"
+"	border-left-color: rgba(39, 4"
+                        "4, 54, 150);\n"
 "	border-left-style: solid;\n"
 "	border-top-right-radius: 3px;\n"
 "	border-bottom-right-radius: 3px;	\n"
@@ -280,8 +280,8 @@ class Ui_MarchSpeedSelectionJRDialog(object):
 "    margin: 0px;\n"
 "	border-radius: 5px;\n"
 "}\n"
-"QSlider::handle:horiz"
-                        "ontal:hover {\n"
+"QSlider::handle:hor"
+                        "izontal:hover {\n"
 "    background-color: rgb(195, 155, 255);\n"
 "}\n"
 "QSlider::handle:horizontal:pressed {\n"
@@ -319,8 +319,8 @@ class Ui_MarchSpeedSelectionJRDialog(object):
 "\n"
 "\n"
 "/* QGroupBox */\n"
-"QGroupBox { border: 1px solid  rgb(255, 121, 198); border-ra"
-                        "dius: 5px; margin-top: 0.5em; }\n"
+"QGroupBox { border: 1px solid  rgb(255, 121, 198); border-"
+                        "radius: 5px; margin-top: 0.5em; }\n"
 "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px 0 3px; }\n"
 "QGroupBox::title { color: rgb(161, 110, 235); }\n"
 "\n"

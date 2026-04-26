@@ -188,6 +188,14 @@ def add_new_instance_page(main_window,index,instance):
     load_auto_bubble_ui(instance_ui, main_window, index)
     load_auto_gather_ui(instance_ui, main_window, index)
 
+    # Open the dedicated log tab from the compact console area.
+    try:
+        instance_ui.open_log_tab_btn_.clicked.connect(
+            lambda: instance_ui.tabWidget.setCurrentWidget(instance_ui.log_tab_)
+        )
+    except Exception:
+        pass
+
     # Loop through all the attributes in instance_ui that are widgets and update the object name
     for attr_name in dir(instance_ui):
         # Ignore special methods and attributes

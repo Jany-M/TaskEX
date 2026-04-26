@@ -31,6 +31,7 @@ The Use Item screen bubble order (when needed) is fixed:
 import re
 import time
 import traceback
+from collections import Counter
 from datetime import datetime, timedelta
 
 import cv2
@@ -59,28 +60,90 @@ def reset_auto_bubble_state(thread, reason=""):
 
 
 def _parse_remaining_minutes(text):
+    parsed = _parse_timer_candidate(text)
+    return parsed['minutes'] if parsed else None
+
+
+def _parse_timer_candidate(text):
     text = (text or "").lower().strip()
     if not text:
         return None
 
-    compact = re.sub(r'\s+', ' ', text)
+    compact = text.replace('：', ':')
+    compact = re.sub(r'(?<=\d)\s*[.,]\s*(?=\d{2}\b)', ':', compact)
+    compact = re.sub(r'\s+', ' ', compact)
 
-    day_match = re.search(r'(\d+)\s*d[a-z]*\s*(\d{1,2})[:h]\s*(\d{1,2})', compact)
+    # Explicit day formats: "3d 05:03", "3 days 05:03", "3d05:03".
+    day_match = re.search(r'(\d{1,2})\s*(?:d|day|days)\s*(\d{1,2})\s*[:h]\s*(\d{1,2})', compact)
     if day_match:
         days = int(day_match.group(1))
         hours = int(day_match.group(2))
         minutes = int(day_match.group(3))
-        return days * 1440 + hours * 60 + minutes
+        if 0 <= hours <= 23 and 0 <= minutes <= 59:
+            return {
+                'minutes': days * 1440 + hours * 60 + minutes,
+                'has_day': True,
+            }
+
+    # OCR may drop the "d" but keep spacing: "3 05:03".
+    implicit_day_match = re.search(r'(\d{1,2})\s+(\d{1,2})\s*[:h]\s*(\d{1,2})', compact)
+    if implicit_day_match:
+        days = int(implicit_day_match.group(1))
+        hours = int(implicit_day_match.group(2))
+        minutes = int(implicit_day_match.group(3))
+        if 1 <= days <= 30 and 0 <= hours <= 23 and 0 <= minutes <= 59:
+            return {
+                'minutes': days * 1440 + hours * 60 + minutes,
+                'has_day': True,
+            }
 
     hms_match = re.search(r'(\d{1,3})\s*[:h]\s*(\d{1,2})(?:\s*[:m]\s*(\d{1,2}))?', compact)
     if hms_match:
         hours = int(hms_match.group(1))
         minutes = int(hms_match.group(2))
-        return hours * 60 + minutes
+        if 0 <= hours <= 24 * 30 and 0 <= minutes <= 59:
+            return {
+                'minutes': hours * 60 + minutes,
+                'has_day': False,
+            }
 
     # Avoid permissive number-only parsing; OCR noise from non-bubble screens
     # can contain random digits and produce false large timers.
     return None
+
+
+def _select_best_timer_parse(parsed_candidates):
+    if not parsed_candidates:
+        return None
+
+    day_candidates = [candidate for candidate in parsed_candidates if candidate.get('has_day')]
+    if day_candidates:
+        return max(day_candidates, key=lambda candidate: candidate['minutes'])
+
+    minutes_counts = Counter(candidate['minutes'] for candidate in parsed_candidates)
+    most_common_count = max(minutes_counts.values())
+    top_minutes = [minutes for minutes, count in minutes_counts.items() if count == most_common_count]
+    chosen_minutes = max(top_minutes)
+
+    for candidate in parsed_candidates:
+        if candidate['minutes'] == chosen_minutes:
+            return candidate
+
+    return None
+
+
+def _format_remaining_duration(total_minutes):
+    if total_minutes is None:
+        return "unknown"
+
+    total_minutes = max(0, int(total_minutes))
+    days, remainder_minutes = divmod(total_minutes, 1440)
+    hours, minutes = divmod(remainder_minutes, 60)
+
+    if days > 0:
+        return f"{days}d {hours:02d}:{minutes:02d}"
+
+    return f"{hours:02d}:{minutes:02d}"
 
 
 def _normalize_ocr_text(text):
@@ -255,6 +318,7 @@ def _read_truce_agreement_status(panel_img):
 
     timer_text = ""
     remaining_minutes = None
+    parsed_candidates = []
     if timer_roi is not None and timer_roi.size > 0:
         try:
             from pytesseract import pytesseract
@@ -272,8 +336,9 @@ def _read_truce_agreement_status(panel_img):
                 pass
 
             configs = [
-                '--psm 7 -c tessedit_char_whitelist=0123456789:',
-                '--psm 6 -c tessedit_char_whitelist=0123456789:',
+                '--psm 7 -c tessedit_char_whitelist=0123456789dDhHmM: ',
+                '--psm 6 -c tessedit_char_whitelist=0123456789dDhHmM: ',
+                '--psm 7',
             ]
             candidates = []
             for cfg in configs:
@@ -284,17 +349,32 @@ def _read_truce_agreement_status(panel_img):
                     pass
 
             for candidate in candidates:
-                parsed = _parse_remaining_minutes(candidate)
+                parsed = _parse_timer_candidate(candidate)
                 if parsed is not None:
-                    timer_text = candidate
-                    remaining_minutes = parsed
-                    break
+                    parsed_candidates.append({
+                        'minutes': parsed['minutes'],
+                        'has_day': parsed['has_day'],
+                        'text': candidate,
+                        'source': 'timer_roi',
+                    })
         except Exception:
             pass
 
-    # Fallback to card-wide OCR parse only if timer bar read failed.
-    if remaining_minutes is None and found:
-        remaining_minutes = _parse_remaining_minutes(text)
+    # Also parse card-wide OCR and merge with timer-bar candidates.
+    if found:
+        card_parsed = _parse_timer_candidate(text)
+        if card_parsed is not None:
+            parsed_candidates.append({
+                'minutes': card_parsed['minutes'],
+                'has_day': card_parsed['has_day'],
+                'text': text,
+                'source': 'card_roi',
+            })
+
+    best_parse = _select_best_timer_parse(parsed_candidates)
+    if best_parse is not None:
+        remaining_minutes = best_parse['minutes']
+        timer_text = best_parse['text']
 
     return {
         'found': found,
@@ -501,8 +581,9 @@ def _run_renewal_path_if_needed(thread, controls, remaining_mins):
     trigger_mins = controls.get('trigger_minutes', 60)
     state = thread.cache.get('auto_bubble_state', {})
     expires_at = state.get('expires_at')
+    remaining_display = _format_remaining_duration(remaining_mins)
     thread.log_message(
-        f"[Auto-Bubble] Remaining: {remaining_mins} min  "
+        f"[Auto-Bubble] Remaining: {remaining_display} ({remaining_mins} min)  "
         f"| Trigger threshold: {trigger_mins} min"
         f" | Expires at: {expires_at or 'not active'}",
         "debug", force_console=False,
@@ -577,8 +658,9 @@ def run_auto_bubble_check(thread, force_refresh=False):
             if wakeup_ts > time.time():
                 state['next_scheduled_check_ts'] = wakeup_ts
                 wakeup_str = datetime.fromtimestamp(wakeup_ts).strftime('%H:%M:%S')
+                remaining_display = _format_remaining_duration(remaining_mins)
                 thread.log_message(
-                    f"[Auto-Bubble] Bubble active ({remaining_mins} min left, "
+                    f"[Auto-Bubble] Bubble active ({remaining_display} left, {remaining_mins} min, "
                     f"threshold {trigger_mins} min). Next check at {wakeup_str}.",
                     "info", force_console=True,
                 )
@@ -589,8 +671,9 @@ def run_auto_bubble_check(thread, force_refresh=False):
         source = state.get('last_check_source', 'unknown')
         if source == 'screen':
             thread.log_message("[Auto-Bubble] Check started", "info", force_console=True)
+        remaining_display = _format_remaining_duration(remaining_mins)
         thread.log_message(
-            f"[Auto-Bubble] Checked - Time until renewal: {remaining_mins} min",
+            f"[Auto-Bubble] Checked - Time until renewal: {remaining_display} ({remaining_mins} min)",
             "info", force_console=True,
         )
 

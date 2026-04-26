@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'preset_configuration.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.8.1
+## Created by: Qt User Interface Compiler version 6.10.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -218,8 +218,8 @@ class Ui_PresetConfigDialog(object):
 "    background: rgb(55, 63, 77);\n"
 "     height: 20px;\n"
 "	border-bottom-left-radius: 4px;\n"
-"    border-bottom-rig"
-                        "ht-radius: 4px;\n"
+"    border-bottom-r"
+                        "ight-radius: 4px;\n"
 "     subcontrol-position: bottom;\n"
 "     subcontrol-origin: margin;\n"
 " }\n"
@@ -253,8 +253,8 @@ class Ui_PresetConfigDialog(object):
 "    border: 3px solid rgb(58, 66, 81);\n"
 "}\n"
 "QCheckBox::indicator:checked {\n"
-"    background: 3px solid rg"
-                        "b(52, 59, 72);\n"
+"    background: 3px solid "
+                        "rgb(52, 59, 72);\n"
 "	border: 3px solid rgb(52, 59, 72);	\n"
 "	background-image: url(:/icons/images/icons/cil-check-alt.png);\n"
 "}\n"
@@ -288,8 +288,8 @@ class Ui_PresetConfigDialog(object):
 "QComboBox:hover{\n"
 "	border: 2px solid rgb(64, 71, 88);\n"
 "}\n"
-"Q"
-                        "ComboBox::drop-down {\n"
+""
+                        "QComboBox::drop-down {\n"
 "	subcontrol-origin: padding;\n"
 "	subcontrol-position: top right;\n"
 "	width: 25px; \n"
@@ -321,8 +321,8 @@ class Ui_PresetConfigDialog(object):
 "	background-color: rgb(55, 62, 76);\n"
 "}\n"
 "QSlider::handle:horizontal {\n"
-"    back"
-                        "ground-color: rgb(189, 147, 249);\n"
+"    bac"
+                        "kground-color: rgb(189, 147, 249);\n"
 "    border: none;\n"
 "    height: 10px;\n"
 "    width: 10px;\n"
@@ -359,8 +359,8 @@ class Ui_PresetConfigDialog(object):
 "QSlider::handle:vertical:pressed {\n"
 "    background-color: rgb(255, 121, 198);\n"
 "}\n"
-"/* /////////////////////////////////////////////////////////////////////////////"
-                        "////////////////////\n"
+"/* ////////////////////////////////////////////////////////////////////////////"
+                        "/////////////////////\n"
 "QListWidget */\n"
 "QListWidget{\n"
 "	border: none;\n"
@@ -400,8 +400,8 @@ class Ui_PresetConfigDialog(object):
 "    margin-left:2px;\n"
 "    margin-right:2px;\n"
 "}\n"
-"QTabBar::tab:selected {  "
-                        "\n"
+"QTabBar::tab:selected { "
+                        " \n"
 "    color: black;\n"
 "    background-color: rgba(255, 255, 255, 200);\n"
 "    margin-top: 0px;\n"

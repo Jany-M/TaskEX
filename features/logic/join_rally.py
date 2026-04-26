@@ -9,13 +9,13 @@ from datetime import timedelta
 import cv2
 import numpy as np
 from pytesseract import pytesseract
-from config.settings import get_strict_monster_match, get_debug_mode
-from features.utils.join_rally_helper_utils import extract_monster_name_from_image, lookup_boss_by_name
+from config.settings import get_strict_monster_match, get_debug_mode, get_assets_dir
+from features.utils.join_rally_helper_utils import extract_monster_name_from_image, lookup_boss_by_name, normalize_boss_text
 from utils.get_controls_info import get_join_rally_controls
 from utils.helper_utils import parse_timer_to_timedelta, get_current_datetime_string
 from utils.image_recognition_utils import is_template_match, draw_template_match, template_match_coordinates_all, \
     template_match_coordinates, detect_red_color
-from utils.navigate_utils import navigate_join_rally_window
+from utils.navigate_utils import navigate_join_rally_window, ensure_and_setup_pvp_war_window_screen, press_back_with_exit_guard
 from utils.text_extraction_util import extract_remaining_rally_time_from_image, extract_join_rally_time_from_image, \
     extract_monster_power_from_image, extract_remaining_rally_time_text
 
@@ -24,6 +24,8 @@ AREA_PROFILES = {
     "join_war_button_fallback": (0.43, 0.88, 0.60, 0.98),
     "monster_text_ocr": (0.60, 0.15, 0.95, 0.29),
     "monster_text_ocr_fallback": (0.56, 0.13, 0.97, 0.33),
+    # Tight timer-bar focused crop (Alliance War rally detail) to avoid power/coords noise.
+    "remaining_time_ocr_timer_bar": (0.06, 0.28, 0.66, 0.44),
     "remaining_time_ocr_primary": (0.44, 0.12, 0.98, 0.40),
     "remaining_time_ocr_fallback": (0.34, 0.08, 0.99, 0.46),
     "march_confirm_search": (0.58, 0.84, 0.98, 0.985),
@@ -36,7 +38,33 @@ AREA_PROFILES = {
     "stamina_item_use_button_search": (0.62, 0.30, 0.98, 0.97),
     "stamina_item_use_min_fallback": (0.70, 0.40, 0.93, 0.50),
     "stamina_item_use_max_fallback": (0.70, 0.85, 0.93, 0.95),
+    "no_marches_banner_ocr": (0.08, 0.28, 0.92, 0.48),
+    "no_marches_banner_ocr_fallback": (0.05, 0.20, 0.95, 0.60),
 }
+
+
+NO_MARCHES_RETRY_COOLDOWN_SECONDS = 10
+NO_RALLIES_RETRY_COOLDOWN_SECONDS = 20
+NO_RALLIES_EMPTY_SWEEP_VIEWS = 5
+
+
+def _resolve_asset_path(asset_path: str) -> str:
+    normalized = str(asset_path).replace("\\", "/")
+    if normalized.startswith("assets/"):
+        normalized = normalized[len("assets/"):]
+    return str(get_assets_dir() / normalized)
+
+
+def _load_asset_template(asset_path: str, thread=None):
+    resolved = _resolve_asset_path(asset_path)
+    template = cv2.imread(resolved)
+    if template is None and thread is not None:
+        thread.log_message(
+            f"Template not found or unreadable: {asset_path} (resolved: {resolved})",
+            "warning",
+            force_console=True,
+        )
+    return template
 
 
 def _profile_bounds(screen, profile_name):
@@ -99,6 +127,8 @@ def _default_join_rally_controls():
         "cache": {
             "skipped_monster_cords_img": [],
             "previous_preset_number": None,
+            "no_marches_until_ts": 0,
+            "no_rallies_until_ts": 0,
         },
     }
 
@@ -131,9 +161,179 @@ def _ensure_join_rally_controls(thread):
     controls.setdefault('cache', {})
     controls['cache'].setdefault('skipped_monster_cords_img', [])
     controls['cache'].setdefault('previous_preset_number', None)
+    controls['cache'].setdefault('no_marches_until_ts', 0)
+    controls['cache'].setdefault('no_rallies_until_ts', 0)
 
     thread.cache['join_rally_controls'] = controls
     return controls
+
+
+def _set_no_marches_cooldown(thread, seconds=NO_MARCHES_RETRY_COOLDOWN_SECONDS):
+    controls = _ensure_join_rally_controls(thread)
+    cache = controls.setdefault('cache', {})
+    now = time.time()
+    existing_until = float(cache.get('no_marches_until_ts') or 0)
+    next_until = max(existing_until, now + max(1, int(seconds)))
+    cache['no_marches_until_ts'] = next_until
+    return max(0.0, next_until - now)
+
+
+def _get_no_marches_cooldown_remaining(thread):
+    controls = _ensure_join_rally_controls(thread)
+    cache = controls.setdefault('cache', {})
+    until_ts = float(cache.get('no_marches_until_ts') or 0)
+    return max(0.0, until_ts - time.time())
+
+
+def _is_no_marches_cooldown_active(thread, log=False):
+    remaining = _get_no_marches_cooldown_remaining(thread)
+    if remaining <= 0:
+        return False
+
+    if log:
+        thread.log_message(
+            f"No march slots available. Waiting {remaining:.1f}s before next rally join attempt.",
+            "info",
+            force_console=True
+        )
+    return True
+
+
+def _set_no_rallies_cooldown(thread, seconds=NO_RALLIES_RETRY_COOLDOWN_SECONDS):
+    controls = _ensure_join_rally_controls(thread)
+    cache = controls.setdefault('cache', {})
+    now = time.time()
+    existing_until = float(cache.get('no_rallies_until_ts') or 0)
+    next_until = max(existing_until, now + max(1, int(seconds)))
+    cache['no_rallies_until_ts'] = next_until
+    cache['no_rallies_rescan_required'] = True
+    return max(0.0, next_until - now)
+
+
+def _get_no_rallies_cooldown_remaining(thread):
+    controls = _ensure_join_rally_controls(thread)
+    cache = controls.setdefault('cache', {})
+    until_ts = float(cache.get('no_rallies_until_ts') or 0)
+    return max(0.0, until_ts - time.time())
+
+
+def _is_no_rallies_cooldown_active(thread, log=False):
+    remaining = _get_no_rallies_cooldown_remaining(thread)
+    if remaining <= 0:
+        return False
+
+    if log:
+        thread.log_message(
+            f"[Join-Rally] Cooling off for {remaining:.1f}s before next rally scan.",
+            "info",
+            force_console=True
+        )
+    return True
+
+
+def _normalize_ocr_for_phrase_match(text):
+    return " ".join(re.sub(r'[^a-z]+', ' ', (text or '').lower()).split())
+
+
+def _is_no_more_troops_text(text):
+    normalized = _normalize_ocr_for_phrase_match(text)
+    if not normalized:
+        return False
+
+    if "cannot send more troops" in normalized or "cant send more troops" in normalized:
+        return True
+
+    required_tokens = ("send", "more", "troops")
+    return ("cannot" in normalized or "cant" in normalized) and all(token in normalized for token in required_tokens)
+
+
+def _detect_no_more_troops_banner(thread, checks=3, delay_between_checks=0.45):
+    for idx in range(max(1, int(checks))):
+        screen = thread.capture_and_validate_screen(ads=False)
+        _save_debug_frame(thread, f"no_marches_check_{idx + 1}", screen)
+        if screen is None:
+            if idx < checks - 1:
+                time.sleep(delay_between_checks)
+            continue
+
+        for profile_name in ("no_marches_banner_ocr", "no_marches_banner_ocr_fallback"):
+            roi = _crop_profile(screen, profile_name)
+            if roi is None:
+                continue
+
+            try:
+                gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+                gray = cv2.GaussianBlur(gray, (3, 3), 0)
+                upscaled = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                _, thresh = cv2.threshold(upscaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+                candidates = [
+                    pytesseract.image_to_string(upscaled, config='--oem 3 --psm 7'),
+                    pytesseract.image_to_string(thresh, config='--oem 3 --psm 7'),
+                    pytesseract.image_to_string(thresh, config='--oem 3 --psm 6'),
+                    pytesseract.image_to_string(thresh, config='--oem 3 --psm 11'),
+                ]
+            except Exception:
+                candidates = []
+
+            for candidate in candidates:
+                if _is_no_more_troops_text(candidate):
+                    thread.log_message(
+                        f"No-marches banner detected from OCR: {_normalize_ocr_for_phrase_match(candidate)}",
+                        "info",
+                        force_console=True
+                    )
+                    return True
+
+        if idx < checks - 1:
+            time.sleep(delay_between_checks)
+
+    return False
+
+
+def _is_march_confirm_button_still_visible(screen):
+    if screen is None:
+        return False
+
+    roi_x1, roi_y1, roi_x2, roi_y2 = _profile_bounds(screen, "march_confirm_search")
+    if roi_x2 <= roi_x1 or roi_y2 <= roi_y1:
+        return False
+
+    roi = screen[roi_y1:roi_y2, roi_x1:roi_x2]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+    lower_green = np.array([35, 55, 40], dtype=np.uint8)
+    upper_green = np.array([95, 255, 255], dtype=np.uint8)
+    mask_green = cv2.inRange(hsv, lower_green, upper_green)
+
+    kernel = np.ones((5, 5), np.uint8)
+    mask_green = cv2.morphologyEx(mask_green, cv2.MORPH_CLOSE, kernel)
+    mask_green = cv2.morphologyEx(mask_green, cv2.MORPH_OPEN, kernel)
+
+    contours, _ = cv2.findContours(mask_green, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        x, y, width, height = cv2.boundingRect(contour)
+        area = width * height
+        if area < 1200 or height <= 0:
+            continue
+        if width / float(height) < 1.8:
+            continue
+        return True
+
+    return False
+
+
+def _classify_post_march_result(thread, screen):
+    if screen is None:
+        return "unknown"
+
+    if ensure_and_setup_pvp_war_window_screen(thread):
+        return "returned_to_rally_list"
+
+    if _is_march_confirm_button_still_visible(screen):
+        return "march_dialog_still_visible"
+
+    return "unknown"
 
 
 def run_join_rally(thread):
@@ -152,8 +352,30 @@ def run_join_rally(thread):
 
     while thread.thread_status():
         try:
+            if _is_no_marches_cooldown_active(thread, log=True):
+                time.sleep(min(1.0, _get_no_marches_cooldown_remaining(thread)))
+                continue
+
+            if _is_no_rallies_cooldown_active(thread, log=True):
+                time.sleep(min(1.0, _get_no_rallies_cooldown_remaining(thread)))
+                continue
+
+            if not navigate_join_rally_window(thread):
+                wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_RETRY_COOLDOWN_SECONDS)
+                thread.log_message(
+                    f"[Join-Rally] Rally navigation unavailable. Cooling off for {wait_seconds:.1f}s before retry.",
+                    "info",
+                    force_console=True,
+                )
+                continue
+
             # Process boss monster rallies
             process_monster_rallies(thread,join_oldest_rallies_first)
+
+            if _is_no_marches_cooldown_active(thread, log=False):
+                time.sleep(min(1.0, _get_no_marches_cooldown_remaining(thread)))
+                continue
+
             thread.log_message(
                 f"Swipe Direction: {swipe_direction} :: iteration: {swipe_iteration} itr cap: {max_swipe_iteration}",
                 "debug",
@@ -161,7 +383,14 @@ def run_join_rally(thread):
             )
 
             # Swipe based on the direction
-            scroll_through_rallies(thread, swipe_direction)
+            if not scroll_through_rallies(thread, swipe_direction):
+                wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_RETRY_COOLDOWN_SECONDS)
+                thread.log_message(
+                    f"[Join-Rally] Rally navigation unavailable. Cooling off for {wait_seconds:.1f}s before retry.",
+                    "info",
+                    force_console=True,
+                )
+                continue
 
             # Update iterations
             swipe_iteration += 1
@@ -177,7 +406,7 @@ def run_join_rally(thread):
                 # Clear skipped cords images
                 _ensure_join_rally_controls(thread).setdefault('cache', {})['skipped_monster_cords_img'] = []
                 # Press back
-                thread.adb_manager.press_back()
+                press_back_with_exit_guard(thread)
                 time.sleep(1)
                 if not navigate_join_rally_window(thread):
                     break
@@ -192,6 +421,11 @@ def run_join_rally(thread):
 def _init_jr_scan_state(thread, controls):
     join_oldest_rallies_first = controls.get('settings', {}).get('join_oldest_rallies_first', False)
     scroll_through_rallies(thread, join_oldest_rallies_first, 5, True)
+    thread.log_message(
+        "[Join-Rally] Starting to join rallies now...",
+        "info",
+        force_console=True,
+    )
 
     return {
         'initialized': True,
@@ -199,6 +433,8 @@ def _init_jr_scan_state(thread, controls):
         'swipe_direction': False if join_oldest_rallies_first else True,
         'swipe_iteration': 0,
         'max_swipe_iteration': 0,
+        'scan_cycle_found_any': False,
+        'scan_cycle_views_checked': 0,
     }
 
 
@@ -207,8 +443,23 @@ def run_join_rally_scan_pass(thread):
     if hasattr(thread, 'preempt_for_bubble_if_due') and thread.preempt_for_bubble_if_due("join-rally scan setup"):
         return False
 
+    if _is_no_marches_cooldown_active(thread, log=False):
+        return False
+
+    if _is_no_rallies_cooldown_active(thread, log=False):
+        return False
+
     controls = _ensure_join_rally_controls(thread)
+    jr_controls_cache = controls.setdefault('cache', {})
     cache_state = thread.cache.setdefault('jr_scan_state', {})
+    if jr_controls_cache.pop('no_rallies_rescan_required', False):
+        thread.log_message(
+            "[Join-Rally] Cool-off finished. Resetting list position and rescanning the full rally list.",
+            "info",
+            force_console=True,
+        )
+        cache_state.clear()
+
     if not cache_state.get('initialized', False):
         cache_state.update(_init_jr_scan_state(thread, controls))
 
@@ -217,35 +468,93 @@ def run_join_rally_scan_pass(thread):
         swipe_direction = cache_state['swipe_direction']
         swipe_iteration = cache_state['swipe_iteration']
         max_swipe_iteration = cache_state['max_swipe_iteration']
+        scan_cycle_found_any = cache_state.get('scan_cycle_found_any', False)
+        scan_cycle_views_checked = cache_state.get('scan_cycle_views_checked', 0)
 
-        process_monster_rallies(thread, join_oldest_rallies_first)
+        if not navigate_join_rally_window(thread):
+            wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_RETRY_COOLDOWN_SECONDS)
+            thread.log_message(
+                f"[Join-Rally] Rally navigation unavailable. Cooling off for {wait_seconds:.1f}s before retry.",
+                "info",
+                force_console=True,
+            )
+            cache_state.update({
+                'scan_cycle_found_any': False,
+                'scan_cycle_views_checked': 0,
+            })
+            return False
+
+        rallies_found = process_monster_rallies(thread, join_oldest_rallies_first)
+        scan_cycle_views_checked += 1
+        if rallies_found > 0:
+            scan_cycle_found_any = True
+
+        if _is_no_marches_cooldown_active(thread, log=False):
+            return False
+
         thread.log_message(
             f"Swipe Direction: {swipe_direction} :: iteration: {swipe_iteration} itr cap: {max_swipe_iteration}",
             "debug",
             console=False
         )
 
-        scroll_through_rallies(thread, swipe_direction)
+        if not scroll_through_rallies(thread, swipe_direction):
+            wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_RETRY_COOLDOWN_SECONDS)
+            thread.log_message(
+                f"[Join-Rally] Rally navigation unavailable. Cooling off for {wait_seconds:.1f}s before retry.",
+                "info",
+                force_console=True,
+            )
+            cache_state.update({
+                'scan_cycle_found_any': False,
+                'scan_cycle_views_checked': 0,
+            })
+            return False
 
         swipe_iteration += 1
         max_swipe_iteration += 1
+        completed_full_scan_cycle = False
 
         if swipe_iteration == 5:
             swipe_direction = not swipe_direction
             swipe_iteration = 0
 
         if max_swipe_iteration >= 20:
+            completed_full_scan_cycle = True
             _ensure_join_rally_controls(thread).setdefault('cache', {})['skipped_monster_cords_img'] = []
-            thread.adb_manager.press_back()
+            press_back_with_exit_guard(thread)
             time.sleep(1)
             if navigate_join_rally_window(thread):
                 swipe_direction = True
                 max_swipe_iteration = 0
+                swipe_iteration = 0
+
+        if completed_full_scan_cycle or (
+            not scan_cycle_found_any and scan_cycle_views_checked >= NO_RALLIES_EMPTY_SWEEP_VIEWS
+        ):
+            if not scan_cycle_found_any:
+                wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_RETRY_COOLDOWN_SECONDS)
+                thread.log_message(
+                    (
+                        "[Join-Rally] No visible valid rallies found across the current scan sweep. "
+                        f"Cooling off for {wait_seconds:.1f}s before next scan."
+                    ),
+                    "info",
+                    force_console=True,
+                )
+            scan_cycle_found_any = False
+            scan_cycle_views_checked = 0
+            if not completed_full_scan_cycle:
+                swipe_iteration = 0
+                max_swipe_iteration = 0
+                swipe_direction = False if join_oldest_rallies_first else True
 
         cache_state.update({
             'swipe_direction': swipe_direction,
             'swipe_iteration': swipe_iteration,
             'max_swipe_iteration': max_swipe_iteration,
+            'scan_cycle_found_any': scan_cycle_found_any,
+            'scan_cycle_views_checked': scan_cycle_views_checked,
         })
 
         return True
@@ -256,7 +565,22 @@ def run_join_rally_scan_pass(thread):
 
 def process_monster_rallies(thread,scan_direction):
 
+    if _is_no_marches_cooldown_active(thread, log=False):
+        return 0
+
+    if _is_no_rallies_cooldown_active(thread, log=False):
+        return 0
+
     rally_cords = get_valid_rallies_area_cords(thread)
+    temporary_unjoinable_rejections = 0
+    joined_rallies = 0
+    thread.log_message(
+        f"[Join-Rally] Rallies found: {len(rally_cords)}",
+        "info",
+        force_console=True,
+    )
+    if not rally_cords:
+        return 0
     # Reorder the cords based on the scan direction
     if scan_direction:
         rally_cords.reverse()
@@ -264,12 +588,14 @@ def process_monster_rallies(thread,scan_direction):
     for cords in rally_cords:
         thread.cache.pop('jr_last_monster_name', None)
         if hasattr(thread, 'preempt_for_bubble_if_due') and thread.preempt_for_bubble_if_due("join-rally scan loop"):
-            return
+            return len(rally_cords)
+        if _is_no_marches_cooldown_active(thread, log=False):
+            return len(rally_cords)
         # Recapture the  screen
         src_img = thread.capture_and_validate_screen(ads=False)
         if src_img is None:
             thread.log_message("Rally list capture failed; skipping current scan pass.", "warning", force_console=True)
-            return
+            return len(rally_cords)
         _save_debug_frame(thread, "rally_list_scan", src_img)
         thread.log_message(f"Rally scan count: {len(rally_cords)} :: {cords}", "debug", console=False)
         x1, y1, x2, y2 = cords
@@ -286,17 +612,29 @@ def process_monster_rallies(thread,scan_direction):
         _save_debug_frame(thread, "rally_detail_opened", rally_detail_screen)
 
         # Scan rally details
+        thread.cache['jr_last_detail_reject_reason'] = None
         rally_info = scan_rally_info(thread,roi_src)
 
         if not rally_info:
+            if thread.cache.get('jr_last_detail_reject_reason') in {'cant_join_on_time', 'remaining_time_too_high'}:
+                temporary_unjoinable_rejections += 1
             thread.log_message("Rally detail scan failed, returning to list.", "warning", force_console=True)
-            thread.adb_manager.press_back()
+            press_back_with_exit_guard(thread)
             time.sleep(1)
             continue
 
         # Proceed to join the rally
-        join_alliance_war_btn_img = cv2.imread("assets/540p/join_rally/join_alliance_war_btn.png")
-        fallback_join_btn_img = cv2.imread("assets/540p/join_rally/join_btn.png")
+        join_alliance_war_btn_img = _load_asset_template("assets/540p/join_rally/join_alliance_war_btn.png", thread)
+        fallback_join_btn_img = _load_asset_template("assets/540p/join_rally/join_btn.png", thread)
+        if join_alliance_war_btn_img is None and fallback_join_btn_img is None:
+            thread.log_message(
+                "Join button templates are unavailable; cannot continue rally join flow.",
+                "warning",
+                force_console=True
+            )
+            press_back_with_exit_guard(thread)
+            time.sleep(1)
+            continue
         join_alliance_war_btn_match = None
         for attempt in range(2):
             rally_detail_img = thread.capture_and_validate_screen(ads=False)
@@ -326,22 +664,35 @@ def process_monster_rallies(thread,scan_direction):
                 "warning",
                 force_console=True
             )
-            thread.adb_manager.press_back()
+            press_back_with_exit_guard(thread)
             time.sleep(1)
             continue
         
-        thread.log_message("Tapping join button...", "debug", force_console=False)
+        thread.log_message("[Join-Rally] Tapping green Join button...", "info", force_console=True)
         thread.adb_manager.tap(*join_alliance_war_btn_match)
-        _save_debug_frame(thread, "join_button_tapped")
-        
-        # Wait for march selection dialog to appear
+        thread.log_message(
+            "[Join-Rally] Green Join button tapped. Waiting for March dialog...",
+            "info",
+            force_console=True,
+        )
+
+        # Wait for march selection dialog to appear.
+        # Avoid an immediate post-tap screenshot here; this exact window has been the most crash-prone.
         time.sleep(1.5)
-        
+
+        thread.log_message(
+            "[Join-Rally] Handing off to March dialog handler.",
+            "info",
+            force_console=True,
+        )
+
         # Apply march preset from the joined rally controls
         if not handle_march_selection_dialog(thread, rally_info):
             thread.log_message("March selection dialog handling failed, pressing back.", "warning", force_console=True)
-            thread.adb_manager.press_back()
+            press_back_with_exit_guard(thread)
             time.sleep(1)
+            if _is_no_marches_cooldown_active(thread, log=False):
+                return len(rally_cords)
             continue
         
         joined_monster = thread.cache.get('jr_last_monster_name') or "Unknown"
@@ -350,7 +701,25 @@ def process_monster_rallies(thread,scan_direction):
             "info",
             force_console=True,
         )
+        jr_scan_state = thread.cache.get('jr_scan_state')
+        if isinstance(jr_scan_state, dict):
+            jr_scan_state['scan_cycle_found_any'] = False
+            jr_scan_state['scan_cycle_views_checked'] = 0
+        joined_rallies += 1
         time.sleep(1)
+
+    if joined_rallies == 0 and temporary_unjoinable_rejections > 0:
+        wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_RETRY_COOLDOWN_SECONDS)
+        thread.log_message(
+            (
+                "[Join-Rally] All scanned rallies are temporarily unjoinable. "
+                f"Treating as no rallies found; cooling off for {wait_seconds:.1f}s before next scan."
+            ),
+            "info",
+            force_console=True,
+        )
+
+    return len(rally_cords)
 
 
 def add_rally_cord_to_skip_list(thread, src_img):
@@ -468,7 +837,48 @@ def handle_march_selection_dialog(thread, rally_info):
                 thread.log_message("Stamina prompt handled and rally flow recovered.", "info", force_console=True)
                 return True
 
-            time.sleep(1.8)
+            if _detect_no_more_troops_banner(thread, checks=6, delay_between_checks=0.7):
+                wait_seconds = _set_no_marches_cooldown(thread, NO_MARCHES_RETRY_COOLDOWN_SECONDS)
+                thread.log_message(
+                    f"Join failed: no march slots available (cannot send more troops). Cooling down for {wait_seconds:.1f}s.",
+                    "warning",
+                    force_console=True
+                )
+                return False
+
+            time.sleep(1.2)
+            post_march_screen = thread.capture_and_validate_screen(ads=False)
+            post_march_result = _classify_post_march_result(thread, post_march_screen)
+            if post_march_result == "returned_to_rally_list":
+                thread.log_message(
+                    "[Join-Rally] Returned to rally list after March confirm; treating join as successful.",
+                    "info",
+                    force_console=True
+                )
+                return True
+
+            if post_march_result == "march_dialog_still_visible":
+                if _detect_no_more_troops_banner(thread, checks=3, delay_between_checks=0.5):
+                    wait_seconds = _set_no_marches_cooldown(thread, NO_MARCHES_RETRY_COOLDOWN_SECONDS)
+                    thread.log_message(
+                        f"Join failed: no march slots available (cannot send more troops). Cooling down for {wait_seconds:.1f}s.",
+                        "warning",
+                        force_console=True
+                    )
+                    return False
+
+                thread.log_message(
+                    "Join did not complete: March dialog is still visible after confirm tap.",
+                    "warning",
+                    force_console=True
+                )
+                return False
+
+            thread.log_message(
+                "[Join-Rally] March confirm outcome unclear, but March dialog is no longer visible; treating join as successful.",
+                "info",
+                force_console=True
+            )
             return True
         else:
             thread.log_message("Could not determine march confirm button location", "warning", force_console=True)
@@ -898,12 +1308,15 @@ def find_march_confirm_button(thread):
 
 def scan_rally_info(thread,roi_src):
     strict_monster_match = get_strict_monster_match()
+    thread.cache['jr_last_detail_reject_reason'] = None
 
     thread.log_message("Scan rally info: start", "info", force_console=True)
 
     # Load template images
-    boss_monster_flag_img = cv2.imread("assets/540p/join_rally/boss_monster_flag.png")
-    map_pinpoint_img = cv2.imread("assets/540p/join_rally/map_pinpoint_tag.png")
+    boss_monster_flag_img = _load_asset_template("assets/540p/join_rally/boss_monster_flag.png", thread)
+    if boss_monster_flag_img is None:
+        thread.log_message("Missing boss_monster_flag template; skipping rally detail scan.", "warning", force_console=True)
+        return False
 
 
     # Capture the current screen
@@ -914,6 +1327,7 @@ def scan_rally_info(thread,roi_src):
 
     # Make sure the rally is in progress
     if not is_template_match(src_img,boss_monster_flag_img):
+        thread.cache['jr_last_detail_reject_reason'] = 'boss_flag_not_found'
         thread.log_message("Rally detail rejected: boss monster flag not found.", "warning", force_console=True)
         return False
     # Make sure there is enough time to join the rally
@@ -921,6 +1335,7 @@ def scan_rally_info(thread,roi_src):
     try:
         remaining_time = get_remaining_rally_time(src_img, thread)
     except Exception as e:
+        thread.cache['jr_last_detail_reject_reason'] = 'remaining_time_ocr_error'
         thread.log_message(
             f"Rally detail rejected: remaining time OCR error ({e}).",
             "warning",
@@ -929,18 +1344,21 @@ def scan_rally_info(thread,roi_src):
         return False
     thread.log_message(f"Scan rally info: remaining time={remaining_time}", "info", force_console=True)
     if not remaining_time:
+        thread.cache['jr_last_detail_reject_reason'] = 'remaining_time_unreadable'
         thread.log_message("Rally detail rejected: remaining time unreadable.", "warning", force_console=True)
         return False
     # Check whether the timer is above 5 mins
     if remaining_time > timedelta(minutes=5):
+        thread.cache['jr_last_detail_reject_reason'] = 'remaining_time_too_high'
         thread.log_message(f"Rally detail rejected: remaining time too high ({remaining_time}).", "info", force_console=True)
         add_rally_cord_to_skip_list(thread, roi_src)
         return False
     # Get the Timer on the join rally button TODO fix the code to extract the correct timer always
     thread.log_message("Scan rally info: reading march time", "info", force_console=True)
-    march_time = get_march_join_time(roi_src)
+    march_time = get_march_join_time(roi_src, thread)
     thread.log_message(f"Scan rally info: march time={march_time}", "info", force_console=True)
     if not march_time:
+        thread.cache['jr_last_detail_reject_reason'] = 'invalid_march_time'
         thread.log_message("Rally detail rejected: invalid march time.", "warning", force_console=True)
         add_rally_cord_to_skip_list(thread, roi_src)
         return False
@@ -950,6 +1368,7 @@ def scan_rally_info(thread,roi_src):
     thread.log_message(f"Total march time {total_march_time}", "info", force_console=True)
     # Check if march time + buffer is within remaining rally time
     if total_march_time >= remaining_time:
+        thread.cache['jr_last_detail_reject_reason'] = 'cant_join_on_time'
         thread.log_message("Rally detail rejected: can't join on time.", "warning", force_console=True)
         add_rally_cord_to_skip_list(thread, roi_src)
         return False
@@ -1018,6 +1437,7 @@ def read_monster_data(thread,src_img):
         return None
 
     thread.log_message(f"Extracted monster text: {extracted_monster_name}", "info", force_console=True)
+    thread.cache['jr_last_monster_name_ocr'] = extracted_monster_name
     thread.cache['jr_last_monster_name'] = extracted_monster_name
 
     # Check and skip dawn monster
@@ -1041,6 +1461,30 @@ def read_monster_data(thread,src_img):
             "debug",
             force_console=False
         )
+    except Exception:
+        pass
+
+    # Prefer a canonical DB monster label for user-facing logs.
+    # This avoids OCR glue artifacts like "wahgysphinx" while keeping OCR raw text for debug.
+    try:
+        normalized_extracted = normalize_boss_text(extracted_monster_name)
+        if normalized_extracted:
+            ranked = []
+            for boss, _logic in bosses:
+                boss_name = (getattr(boss, 'name', '') or '').strip()
+                normalized_name = normalize_boss_text(boss_name)
+                if not normalized_name:
+                    continue
+
+                exact = 1 if normalized_name == normalized_extracted else 0
+                substring = 1 if (normalized_name in normalized_extracted or normalized_extracted in normalized_name) else 0
+                ranked.append((exact, substring, len(normalized_name), boss_name))
+
+            if ranked:
+                ranked.sort(reverse=True)
+                canonical_name = ranked[0][3]
+                if canonical_name:
+                    thread.cache['jr_last_monster_name'] = canonical_name
     except Exception:
         pass
 
@@ -1115,8 +1559,10 @@ def verify_monster_join(thread,extracted_boss_data):
 
 
 
-def get_march_join_time(src_img):
-    join_btn = cv2.imread("assets/540p/join_rally/join_btn.png")
+def get_march_join_time(src_img, thread=None):
+    join_btn = _load_asset_template("assets/540p/join_rally/join_btn.png", thread)
+    if join_btn is None:
+        return False
     join_btn_match = template_match_coordinates(src_img,join_btn,return_center=False)
     if not join_btn_match:
         return False
@@ -1178,10 +1624,13 @@ def _parse_remaining_time_candidate(raw_text):
 
 
 def _build_remaining_time_rois(src_img):
+    timer_bar = _crop_profile(src_img, "remaining_time_ocr_timer_bar")
     primary = _crop_profile(src_img, "remaining_time_ocr_primary")
     fallback = _crop_profile(src_img, "remaining_time_ocr_fallback")
 
     rois = []
+    if timer_bar is not None and timer_bar.size > 0:
+        rois.append(timer_bar)
     if primary is not None and primary.size > 0:
         rois.append(primary)
     if fallback is not None and fallback.size > 0:
@@ -1261,9 +1710,17 @@ def get_valid_rallies_area_cords(thread):
     src_img = thread.capture_and_validate_screen(ads=False)
 
     # Load template images
-    boss_monster_tag_img = cv2.imread("assets/540p/join_rally/boss_monster_tag.png")
-    join_btn_img = cv2.imread("assets/540p/join_rally/join_btn.png")
-    map_pinpoint_img = cv2.imread("assets/540p/join_rally/map_pinpoint_tag.png")
+    boss_monster_tag_img = _load_asset_template("assets/540p/join_rally/boss_monster_tag.png", thread)
+    join_btn_img = _load_asset_template("assets/540p/join_rally/join_btn.png", thread)
+    map_pinpoint_img = _load_asset_template("assets/540p/join_rally/map_pinpoint_tag.png", thread)
+
+    if boss_monster_tag_img is None or join_btn_img is None or map_pinpoint_img is None:
+        thread.log_message(
+            "Join-rally list templates are unavailable; cannot detect rally rows.",
+            "warning",
+            force_console=True
+        )
+        return []
 
     # Get the boss monster rallies matches
     boss_monster_tag_matches = template_match_coordinates_all(src_img, boss_monster_tag_img)
@@ -1325,15 +1782,27 @@ def scroll_through_rallies(thread,swipe_direction,swipe_limit=1,initial_swipe = 
     if not navigate_join_rally_window(thread):
         thread.log_message("Cannot navigate to join rally window.", "warning", force_console=True)
         return False
+    if initial_swipe:
+        thread.log_message(
+            "[Join-Rally] Scrolling to end of rally list...",
+            "info",
+            force_console=True,
+        )
     # If the join oldest rally is not checked, then skip this.
     if initial_swipe and not swipe_direction:
         return True
     # Load the template image
-    background_img = cv2.imread("assets/540p/join_rally/alliance_war_window_background.png")
+    background_img = _load_asset_template("assets/540p/join_rally/alliance_war_window_background.png", thread)
     for i in range(swipe_limit):
         # Check if there is any rallies to scroll through
         src_img = thread.capture_and_validate_screen(ads=False)
-        if is_template_match(src_img, background_img,False, 0.95):
+        if background_img is not None and is_template_match(src_img, background_img,False, 0.95):
+            if initial_swipe:
+                thread.log_message(
+                    "[Join-Rally] End of rally list reached.",
+                    "info",
+                    force_console=True,
+                )
             # print("No more rallies in the list")
             # cv2.imwrite(r"E:\Projects\PyCharmProjects\TaskEX\temp\demo.png",draw_template_match(src_img, background_img,False, 0.95))
             break

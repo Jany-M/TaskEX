@@ -5,6 +5,7 @@ import re
 import io
 import logging
 import argparse
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
@@ -141,6 +142,83 @@ def _runtime_base_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
+
+
+def _clear_runtime_temp_dirs(logger: Optional[logging.Logger] = None):
+    """
+    Clear app temp folders on GUI startup.
+
+    In dev this is typically <project_root>/temp.
+    In frozen builds this is typically <exe_dir>/temp.
+    Also clear the current working directory temp folder when it differs,
+    since debug captures are written using relative "temp/..." paths.
+    """
+    temp_dirs = []
+    runtime_temp = (_runtime_base_dir() / "temp").resolve()
+    temp_dirs.append(runtime_temp)
+
+    try:
+        cwd_temp = (Path.cwd() / "temp").resolve()
+        if cwd_temp not in temp_dirs:
+            temp_dirs.append(cwd_temp)
+    except Exception:
+        pass
+
+    for temp_dir in temp_dirs:
+        try:
+            if not temp_dir.exists():
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                continue
+
+            for child in temp_dir.iterdir():
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=False)
+                else:
+                    child.unlink(missing_ok=True)
+
+            if logger is not None:
+                logger.info("Cleared temp directory: %s", temp_dir)
+        except Exception as exc:
+            if logger is not None:
+                logger.warning("Failed to clear temp directory '%s': %s", temp_dir, exc)
+
+
+def _clear_runtime_log_dirs(logger: Optional[logging.Logger] = None):
+    """
+    Clear app logs folders on GUI startup.
+
+    In dev this is typically <project_root>/logs.
+    In frozen builds this is typically <exe_dir>/logs.
+    Also clear the current working directory logs folder when it differs.
+    """
+    log_dirs = []
+    runtime_logs = (_runtime_base_dir() / "logs").resolve()
+    log_dirs.append(runtime_logs)
+
+    try:
+        cwd_logs = (Path.cwd() / "logs").resolve()
+        if cwd_logs not in log_dirs:
+            log_dirs.append(cwd_logs)
+    except Exception:
+        pass
+
+    for log_dir in log_dirs:
+        try:
+            if not log_dir.exists():
+                log_dir.mkdir(parents=True, exist_ok=True)
+                continue
+
+            for child in log_dir.iterdir():
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=False)
+                else:
+                    child.unlink(missing_ok=True)
+
+            if logger is not None:
+                logger.info("Cleared logs directory: %s", log_dir)
+        except Exception as exc:
+            if logger is not None:
+                logger.warning("Failed to clear logs directory '%s': %s", log_dir, exc)
 
 
 class _StreamTee(io.TextIOBase):
@@ -345,6 +423,9 @@ if __name__ == "__main__":
     from PySide6.QtGui import QIcon
     from core.main_window import MainWindow
     from core.splash_screen import SplashScreen
+
+    _clear_runtime_temp_dirs()
+    _clear_runtime_log_dirs()
 
     runtime_logger, runtime_log_file = _setup_runtime_logging()
     runtime_logger.info("Starting TaskEnforcerX")

@@ -4,6 +4,7 @@ import os
 import cv2
 import numpy as np
 
+from config.settings import get_assets_dir
 from utils.helper_utils import get_current_datetime_string, is_valid_timer_format
 
 # Try easyocr first, fall back to pytesseract if not available
@@ -201,7 +202,10 @@ def extract_join_rally_time_from_image(img):
     return None
 
 def extract_monster_power_from_image(img):
-    monster_power_icon_img = cv2.imread("assets/540p/join_rally/monster_power_icon.png")
+    monster_power_icon_path = str(get_assets_dir() / "540p" / "join_rally" / "monster_power_icon.png")
+    monster_power_icon_img = cv2.imread(monster_power_icon_path)
+    if monster_power_icon_img is None:
+        return ""
 
     # Get image dimensions
     height, width = img.shape[:2]

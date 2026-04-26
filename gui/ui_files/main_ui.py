@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFram
     QWidget)
 
 from core.custom_widgets.QCheckComboBox import QCheckComboBox
-from resources import resources_rc
+import resources_rc
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -391,8 +391,8 @@ class Ui_MainWindow(object):
 " QScrollBar::handle:vertical {	\n"
 "	background: rgb(189, 147, 249);\n"
 "    min-height: 25px;\n"
-"	borde"
-                        "r-radius: 4px\n"
+"	bor"
+                        "der-radius: 4px\n"
 " }\n"
 " QScrollBar::add-line:vertical {\n"
 "     border: none;\n"
@@ -426,8 +426,8 @@ class Ui_MainWindow(object):
 "    border: 3px solid rgb(52, 59, 72);\n"
 "	width: 15px;\n"
 "	height: 15px;\n"
-"	border-rad"
-                        "ius: 10px;\n"
+"	border-r"
+                        "adius: 10px;\n"
 "    background: rgb(44, 49, 60);\n"
 "}\n"
 "QCheckBox::indicator:hover {\n"
@@ -459,8 +459,8 @@ class Ui_MainWindow(object):
 "/* /////////////////////////////////////////////////////////////////////////////////////////////////\n"
 "ComboBox */\n"
 "QComboBox{\n"
-"	background-color: r"
-                        "gb(27, 29, 35);\n"
+"	background-color:"
+                        " rgb(27, 29, 35);\n"
 "	border-radius: 5px;\n"
 "	border: 2px solid rgb(33, 37, 43);\n"
 "	padding: 5px;\n"
@@ -494,8 +494,8 @@ class Ui_MainWindow(object):
 "Sliders */\n"
 "QSlider::groove:horizontal {\n"
 "    border-radius: 5px;\n"
-"    "
-                        "height: 10px;\n"
+"  "
+                        "  height: 10px;\n"
 "	margin: 0px;\n"
 "	background-color: rgb(52, 59, 72);\n"
 "}\n"
@@ -535,8 +535,8 @@ class Ui_MainWindow(object):
 "	border-radius: 5px;\n"
 "}\n"
 "QSlider::handle:vertical:hover {\n"
-"    background-"
-                        "color: rgb(195, 155, 255);\n"
+"    backgroun"
+                        "d-color: rgb(195, 155, 255);\n"
 "}\n"
 "QSlider::handle:vertical:pressed {\n"
 "    background-color: rgb(255, 121, 198);\n"
@@ -573,8 +573,8 @@ class Ui_MainWindow(object):
 "} \n"
 "\n"
 "QTabBar::tab {  \n"
-"	background-color: rgba(30, 35, 43"
-                        ", 0.9); \n"
+"	background-color: rgba(30, 35, "
+                        "43, 0.9); \n"
 "   /* background-color: rgba(50, 55, 65, 0.9);*/\n"
 "    min-width: 140px; \n"
 "    min-height:28px;\n"
@@ -604,8 +604,8 @@ class Ui_MainWindow(object):
 "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px 0 3px; }\n"
 "QGroupBox::title { color: rgb(161, 110, 235); }\n"
 "\n"
-"/* ////////////////////////////////////////////////////////////////////////////"
-                        "/////////////////////\n"
+"/* //////////////////////////////////////////////////////////////////////////"
+                        "///////////////////////\n"
 "Button */\n"
 "#pagesContainer QPushButton {\n"
 "	border: 2px solid rgb(52, 59, 72);\n"
@@ -1510,44 +1510,6 @@ class Ui_MainWindow(object):
         self.horizontalLayout_8.addWidget(self.frame_5)
 
         self.tabWidget.addTab(self.champions, "")
-        self.bubbles = QWidget()
-        self.bubbles.setObjectName(u"bubbles")
-        self.verticalLayout_24 = QVBoxLayout(self.bubbles)
-        self.verticalLayout_24.setObjectName(u"verticalLayout_24")
-        self.frame_7 = QFrame(self.bubbles)
-        self.frame_7.setObjectName(u"frame_7")
-        self.frame_7.setFrameShape(QFrame.Shape.NoFrame)
-        self.frame_7.setFrameShadow(QFrame.Shadow.Raised)
-        self.verticalLayout_25 = QVBoxLayout(self.frame_7)
-        self.verticalLayout_25.setObjectName(u"verticalLayout_25")
-        self.verticalLayout_25.setContentsMargins(0, 0, 0, 0)
-        self.bm_bubbles_scroll_area = QScrollArea(self.frame_7)
-        self.bm_bubbles_scroll_area.setObjectName(u"bm_bubbles_scroll_area")
-        self.bm_bubbles_scroll_area.setStyleSheet(u"#bm_bubbles_scroll_area{\n"
-"	border: 1px solid  rgb(255, 121, 198); border-radius: 5px;margin-top: 0.2em \n"
-"}")
-        self.bm_bubbles_scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.bm_bubbles_scroll_area.setWidgetResizable(True)
-        self.scrollAreaWidgetContents_5 = QWidget()
-        self.scrollAreaWidgetContents_5.setObjectName(u"scrollAreaWidgetContents_5")
-        self.scrollAreaWidgetContents_5.setGeometry(QRect(0, 0, 966, 513))
-        self.horizontalLayout_19 = QHBoxLayout(self.scrollAreaWidgetContents_5)
-        self.horizontalLayout_19.setObjectName(u"horizontalLayout_19")
-        self.horizontalLayout_19.setContentsMargins(11, 11, 11, 11)
-        self.bubbles_list_frame = QFrame(self.scrollAreaWidgetContents_5)
-        self.bubbles_list_frame.setObjectName(u"bubbles_list_frame")
-        self.bubbles_list_frame.setFrameShape(QFrame.Shape.NoFrame)
-        self.bubbles_list_frame.setFrameShadow(QFrame.Shadow.Raised)
-
-        self.horizontalLayout_19.addWidget(self.bubbles_list_frame)
-
-        self.bm_bubbles_scroll_area.setWidget(self.scrollAreaWidgetContents_5)
-
-        self.verticalLayout_25.addWidget(self.bm_bubbles_scroll_area)
-
-        self.verticalLayout_24.addWidget(self.frame_7)
-
-        self.tabWidget.addTab(self.bubbles, "")
 
         self.verticalLayout_20.addWidget(self.tabWidget)
 
@@ -1839,7 +1801,6 @@ class Ui_MainWindow(object):
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.monsters), QCoreApplication.translate("MainWindow", u"Monsters", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.black_market), QCoreApplication.translate("MainWindow", u"Black Market", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.champions), QCoreApplication.translate("MainWindow", u"Champions", None))
-        self.tabWidget.setTabText(self.tabWidget.indexOf(self.bubbles), QCoreApplication.translate("MainWindow", u"Bubbles", None))
         self.btn_screen_settings.setText(QCoreApplication.translate("MainWindow", u"Screen Settings", None))
         self.label.setText(QCoreApplication.translate("MainWindow", u"Screen DPI", None))
         self.label_4.setText(QCoreApplication.translate("MainWindow", u"Restart to apply DPI settings!", None))
