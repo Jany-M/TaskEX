@@ -221,6 +221,43 @@ def _clear_runtime_log_dirs(logger: Optional[logging.Logger] = None):
                 logger.warning("Failed to clear logs directory '%s': %s", log_dir, exc)
 
 
+def _clear_runtime_dev_pngs(logger: Optional[logging.Logger] = None):
+    """
+    Clear PNG debug captures from _dev on GUI startup.
+
+    Targets only top-level PNG files inside _dev (non-recursive), both in:
+    - runtime base directory
+    - current working directory (when different)
+    """
+    dev_dirs = []
+    runtime_dev = (_runtime_base_dir() / "_dev").resolve()
+    dev_dirs.append(runtime_dev)
+
+    try:
+        cwd_dev = (Path.cwd() / "_dev").resolve()
+        if cwd_dev not in dev_dirs:
+            dev_dirs.append(cwd_dev)
+    except Exception:
+        pass
+
+    for dev_dir in dev_dirs:
+        try:
+            if not dev_dir.exists() or not dev_dir.is_dir():
+                continue
+
+            removed = 0
+            for child in dev_dir.iterdir():
+                if child.is_file() and child.suffix.lower() == ".png":
+                    child.unlink(missing_ok=True)
+                    removed += 1
+
+            if logger is not None:
+                logger.info("Cleared %d PNG file(s) from _dev directory: %s", removed, dev_dir)
+        except Exception as exc:
+            if logger is not None:
+                logger.warning("Failed to clear _dev PNGs in '%s': %s", dev_dir, exc)
+
+
 class _StreamTee(io.TextIOBase):
     def __init__(self, original_stream, log_stream):
         self.original_stream = original_stream
@@ -426,6 +463,8 @@ if __name__ == "__main__":
 
     _clear_runtime_temp_dirs()
     _clear_runtime_log_dirs()
+    if not getattr(sys, "frozen", False):
+        _clear_runtime_dev_pngs()
 
     runtime_logger, runtime_log_file = _setup_runtime_logging()
     runtime_logger.info("Starting TaskEnforcerX")

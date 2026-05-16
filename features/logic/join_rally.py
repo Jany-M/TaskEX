@@ -43,9 +43,10 @@ AREA_PROFILES = {
 }
 
 
-NO_MARCHES_RETRY_COOLDOWN_SECONDS = 10
-NO_RALLIES_RETRY_COOLDOWN_SECONDS = 20
-NO_RALLIES_EMPTY_SWEEP_VIEWS = 5
+NO_MARCHES_RETRY_COOLDOWN_SECONDS = 30
+NO_RALLIES_RETRY_COOLDOWN_SECONDS = 30
+NO_RALLIES_EMPTY_SWEEP_VIEWS = 2
+NO_RALLIES_EMPTY_SWEEP_COOLDOWN_SECONDS = 30
 
 
 def _resolve_asset_path(asset_path: str) -> str:
@@ -458,6 +459,7 @@ def run_join_rally_scan_pass(thread):
             "info",
             force_console=True,
         )
+        jr_controls_cache['skipped_monster_cords_img'] = []
         cache_state.clear()
 
     if not cache_state.get('initialized', False):
@@ -533,7 +535,7 @@ def run_join_rally_scan_pass(thread):
             not scan_cycle_found_any and scan_cycle_views_checked >= NO_RALLIES_EMPTY_SWEEP_VIEWS
         ):
             if not scan_cycle_found_any:
-                wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_RETRY_COOLDOWN_SECONDS)
+                wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_EMPTY_SWEEP_COOLDOWN_SECONDS)
                 thread.log_message(
                     (
                         "[Join-Rally] No visible valid rallies found across the current scan sweep. "
@@ -563,7 +565,7 @@ def run_join_rally_scan_pass(thread):
         thread.log_message(f"Traceback: {traceback.format_exc()}", "debug", force_console=False)
         return False
 
-def process_monster_rallies(thread,scan_direction):
+def process_monster_rallies(thread, scan_direction, allow_skip_cache_retry=True):
 
     if _is_no_marches_cooldown_active(thread, log=False):
         return 0
@@ -573,7 +575,9 @@ def process_monster_rallies(thread,scan_direction):
 
     rally_cords = get_valid_rallies_area_cords(thread)
     temporary_unjoinable_rejections = 0
+    join_button_missing_rejections = 0
     joined_rallies = 0
+    skipped_by_cache = 0
     thread.log_message(
         f"[Join-Rally] Rallies found: {len(rally_cords)}",
         "info",
@@ -602,6 +606,7 @@ def process_monster_rallies(thread,scan_direction):
         roi_src = src_img[y1:y2, x1:x2]
         # validate before joining the rally
         if not check_skipped_rallies(thread,roi_src):
+            skipped_by_cache += 1
             continue
         # Click on the rally
         thread.log_message(f"Opening rally at cords: {cords}", "info", force_console=True)
@@ -616,7 +621,7 @@ def process_monster_rallies(thread,scan_direction):
         rally_info = scan_rally_info(thread,roi_src)
 
         if not rally_info:
-            if thread.cache.get('jr_last_detail_reject_reason') in {'cant_join_on_time', 'remaining_time_too_high'}:
+            if thread.cache.get('jr_last_detail_reject_reason') in {'cant_join_on_time', 'remaining_time_too_high', 'invalid_march_time'}:
                 temporary_unjoinable_rejections += 1
             thread.log_message("Rally detail scan failed, returning to list.", "warning", force_console=True)
             press_back_with_exit_guard(thread)
@@ -659,6 +664,7 @@ def process_monster_rallies(thread,scan_direction):
             time.sleep(0.4)
 
         if not join_alliance_war_btn_match:
+            join_button_missing_rejections += 1
             thread.log_message(
                 "Join button not found (likely rally already started). Skipping this rally.",
                 "warning",
@@ -707,6 +713,32 @@ def process_monster_rallies(thread,scan_direction):
             jr_scan_state['scan_cycle_views_checked'] = 0
         joined_rallies += 1
         time.sleep(1)
+
+    if (
+        allow_skip_cache_retry
+        and joined_rallies == 0
+        and rally_cords
+        and skipped_by_cache >= len(rally_cords)
+    ):
+        _ensure_join_rally_controls(thread).setdefault('cache', {})['skipped_monster_cords_img'] = []
+        thread.log_message(
+            "[Join-Rally] All detected rallies matched cached skip rows; cleared skip cache and retrying once.",
+            "info",
+            force_console=True,
+        )
+        return process_monster_rallies(thread, scan_direction, allow_skip_cache_retry=False)
+
+    if joined_rallies == 0 and rally_cords and join_button_missing_rejections >= len(rally_cords):
+        wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_EMPTY_SWEEP_COOLDOWN_SECONDS)
+        thread.log_message(
+            (
+                "[Join-Rally] All detected rallies are no longer joinable (Join button missing, likely already started). "
+                f"Cooling off for {wait_seconds:.1f}s before next scan."
+            ),
+            "info",
+            force_console=True,
+        )
+        return len(rally_cords)
 
     if joined_rallies == 0 and temporary_unjoinable_rejections > 0:
         wait_seconds = _set_no_rallies_cooldown(thread, NO_RALLIES_RETRY_COOLDOWN_SECONDS)
@@ -1358,9 +1390,8 @@ def scan_rally_info(thread,roi_src):
     march_time = get_march_join_time(roi_src, thread)
     thread.log_message(f"Scan rally info: march time={march_time}", "info", force_console=True)
     if not march_time:
-        thread.cache['jr_last_detail_reject_reason'] = 'invalid_march_time'
-        thread.log_message("Rally detail rejected: invalid march time.", "warning", force_console=True)
-        add_rally_cord_to_skip_list(thread, roi_src)
+        thread.cache['jr_last_detail_reject_reason'] = 'cant_join_on_time'
+        thread.log_message("Rally detail rejected: march time unreadable or red (can't join on time).", "warning", force_console=True)
         return False
     thread.log_message(f"Remaining Time: {remaining_time} :: March Time {march_time}", "info", force_console=True)
     # Add buffer time to march time

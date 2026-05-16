@@ -46,6 +46,8 @@ from utils.get_controls_info import get_auto_bubble_controls
 
 
 CITY_BUFF_BACK_ICON_COORDS = (35, 30)
+# Max plausible Truce timer window (7-day bubble + 24h OCR headroom).
+MAX_TRUCE_TIMER_MINUTES = 8 * 24 * 60
 
 
 def reset_auto_bubble_state(thread, reason=""):
@@ -73,25 +75,31 @@ def _parse_timer_candidate(text):
     compact = re.sub(r'(?<=\d)\s*[.,]\s*(?=\d{2}\b)', ':', compact)
     compact = re.sub(r'\s+', ' ', compact)
 
-    # Explicit day formats: "3d 05:03", "3 days 05:03", "3d05:03".
-    day_match = re.search(r'(\d{1,2})\s*(?:d|day|days)\s*(\d{1,2})\s*[:h]\s*(\d{1,2})', compact)
+    # Explicit day formats: "3d 05:03", "3 days 05:03", "3d05:03", "3d 05:03:12".
+    # Some game states show overflow hours like "2d 24:00"; normalize to 3d 00:00.
+    day_match = re.search(r'(\d{1,2})\s*(?:d|day|days)\s*(\d{1,2})\s*[:h]\s*(\d{1,2})(?:\s*[:m]\s*(\d{1,2}))?', compact)
     if day_match:
         days = int(day_match.group(1))
         hours = int(day_match.group(2))
         minutes = int(day_match.group(3))
-        if 0 <= hours <= 23 and 0 <= minutes <= 59:
+        seconds = int(day_match.group(4)) if day_match.group(4) else 0
+        if 0 <= hours <= 99 and 0 <= minutes <= 59:
+            days += hours // 24
+            hours = hours % 24
             return {
-                'minutes': days * 1440 + hours * 60 + minutes,
+                'minutes': days * 1440 + hours * 60 + minutes + (1 if seconds >= 30 else 0),
                 'has_day': True,
             }
 
-    # OCR may drop the "d" but keep spacing: "3 05:03".
+    # OCR may drop the "d" but keep spacing: "3 05:03" or "2 24:00".
     implicit_day_match = re.search(r'(\d{1,2})\s+(\d{1,2})\s*[:h]\s*(\d{1,2})', compact)
     if implicit_day_match:
         days = int(implicit_day_match.group(1))
         hours = int(implicit_day_match.group(2))
         minutes = int(implicit_day_match.group(3))
-        if 1 <= days <= 30 and 0 <= hours <= 23 and 0 <= minutes <= 59:
+        if 1 <= days <= 30 and 0 <= hours <= 99 and 0 <= minutes <= 59:
+            days += hours // 24
+            hours = hours % 24
             return {
                 'minutes': days * 1440 + hours * 60 + minutes,
                 'has_day': True,
@@ -101,9 +109,10 @@ def _parse_timer_candidate(text):
     if hms_match:
         hours = int(hms_match.group(1))
         minutes = int(hms_match.group(2))
+        seconds = int(hms_match.group(3)) if hms_match.group(3) else 0
         if 0 <= hours <= 24 * 30 and 0 <= minutes <= 59:
             return {
-                'minutes': hours * 60 + minutes,
+                'minutes': hours * 60 + minutes + (1 if seconds >= 30 else 0),
                 'has_day': False,
             }
 
@@ -175,6 +184,42 @@ def _extract_top_title_text(panel_img):
         return ""
 
 
+def _extract_top_panel_text(panel_img):
+    """OCR a larger top panel region for robust City Buff/Truce detection."""
+    if panel_img is None or panel_img.size == 0:
+        return ""
+
+    try:
+        from pytesseract import pytesseract
+
+        img_h, img_w = panel_img.shape[:2]
+        x1 = int(img_w * 0.0)
+        y1 = int(img_h * 0.0)
+        x2 = int(img_w * 1.0)
+        y2 = int(img_h * 0.25)
+        roi = panel_img[y1:y2, x1:x2]
+
+        if roi is None or roi.size == 0:
+            return ""
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        enlarged = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        _, thresh = cv2.threshold(enlarged, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        texts = []
+        for img in (enlarged, thresh):
+            try:
+                txt = pytesseract.image_to_string(img, config='--psm 6').strip().lower()
+                if txt:
+                    texts.append(txt)
+            except Exception:
+                pass
+
+        return "\n".join(texts)
+    except Exception:
+        return ""
+
+
 def _is_city_buff_screen(panel_img):
     """
     Validate that the panel image is actually the City Buff screen, not Use Item or other screen.
@@ -190,13 +235,19 @@ def _is_city_buff_screen(panel_img):
 
     try:
         text = _extract_top_title_text(panel_img)
+        panel_text = _extract_top_panel_text(panel_img)
+        combined_text = f"{text}\n{panel_text}".lower()
 
         # If we see "Use Item", we're on the WRONG screen (bubble selection, not City Buff)
-        if 'use item' in text or ('use' in text and 'item' in text):
+        if 'use item' in combined_text or ('use' in combined_text and 'item' in combined_text):
             return False
 
         # If we see "City Buff", we're on the RIGHT screen
-        if 'city buff' in text or ('city' in text and 'buff' in text):
+        if 'city buff' in combined_text or ('city' in combined_text and 'buff' in combined_text):
+            return True
+
+        # Fallback: first row on City Buff reliably contains "Truce Agreement".
+        if 'truce agreement' in combined_text or ('truce' in combined_text and 'agreement' in combined_text):
             return True
 
         # If we see neither, it might be some other screen -- be cautious
@@ -294,16 +345,27 @@ def _read_truce_agreement_status(panel_img):
             'ocr_text': 'ERROR: ROI extraction failed',
         }
 
+    card_text_candidates = []
     try:
         from pytesseract import pytesseract
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        enlarged = cv2.resize(thresh, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        text = pytesseract.image_to_string(enlarged, config='--psm 6').strip()
-        normalized = _normalize_ocr_text(text)
+        enlarged_thresh = cv2.resize(thresh, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        enlarged_gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
-        found = 'truce agreement' in normalized or ('truce' in normalized and 'agreement' in normalized)
+        for cfg in ('--psm 6', '--psm 7'):
+            for img in (enlarged_thresh, enlarged_gray):
+                try:
+                    candidate = pytesseract.image_to_string(img, config=cfg).strip()
+                    if candidate:
+                        card_text_candidates.append(candidate)
+                except Exception:
+                    pass
+
+        normalized_candidates = [_normalize_ocr_text(t) for t in card_text_candidates]
+        found = any('truce agreement' in n or ('truce' in n and 'agreement' in n) for n in normalized_candidates)
+        text = max(card_text_candidates, key=len) if card_text_candidates else ''
     except Exception:
         found = False
         text = ''
@@ -327,6 +389,14 @@ def _read_truce_agreement_status(panel_img):
             timer_up = cv2.resize(timer_gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
             # Simple threshold works best: white text on green background
             _, timer_bin = cv2.threshold(timer_up, 160, 255, cv2.THRESH_BINARY)
+            timer_adaptive = cv2.adaptiveThreshold(
+                timer_up,
+                255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY,
+                31,
+                2,
+            )
 
             # Save debug image of timer bar for analysis
             try:
@@ -345,6 +415,7 @@ def _read_truce_agreement_status(panel_img):
                 try:
                     candidates.append(pytesseract.image_to_string(timer_bin, config=cfg).strip())
                     candidates.append(pytesseract.image_to_string(timer_up, config=cfg).strip())
+                    candidates.append(pytesseract.image_to_string(timer_adaptive, config=cfg).strip())
                 except Exception:
                     pass
 
@@ -362,16 +433,24 @@ def _read_truce_agreement_status(panel_img):
 
     # Also parse card-wide OCR and merge with timer-bar candidates.
     if found:
-        card_parsed = _parse_timer_candidate(text)
-        if card_parsed is not None:
-            parsed_candidates.append({
-                'minutes': card_parsed['minutes'],
-                'has_day': card_parsed['has_day'],
-                'text': text,
-                'source': 'card_roi',
-            })
+        for card_text in card_text_candidates or [text]:
+            card_parsed = _parse_timer_candidate(card_text)
+            if card_parsed is not None:
+                parsed_candidates.append({
+                    'minutes': card_parsed['minutes'],
+                    'has_day': card_parsed['has_day'],
+                    'text': card_text,
+                    'source': 'card_roi',
+                })
 
-    best_parse = _select_best_timer_parse(parsed_candidates)
+    # Reject implausible OCR outliers (e.g. "24d 00:00") for City Buff timers.
+    plausible_candidates = [
+        candidate
+        for candidate in parsed_candidates
+        if 0 < int(candidate.get('minutes', 0)) <= MAX_TRUCE_TIMER_MINUTES
+    ]
+
+    best_parse = _select_best_timer_parse(plausible_candidates or parsed_candidates)
     if best_parse is not None:
         remaining_minutes = best_parse['minutes']
         timer_text = best_parse['text']
@@ -572,6 +651,81 @@ def _run_timer_check_path(thread, controls, force_refresh=False):
     return remaining_mins
 
 
+def _expected_remaining_from_expires_at(expires_at_ts):
+    if not expires_at_ts:
+        return None
+    try:
+        return max(0, int((float(expires_at_ts) - time.time()) // 60))
+    except Exception:
+        return None
+
+
+def _stabilize_timer_reading(thread, controls, remaining_mins, trigger_mins, previous_expires_at_ts):
+    """
+    Reconfirm suspicious readings so one OCR outlier does not trigger bad decisions.
+
+    Rules:
+      - Always reconfirm when reading is at/below threshold (prevents unnecessary bubble use).
+      - Reconfirm large upward jumps vs previous expected remaining (prevents delayed checks).
+    """
+    state = thread.cache.setdefault('auto_bubble_state', {})
+    source = state.get('last_check_source', 'unknown')
+    previous_expected = _expected_remaining_from_expires_at(previous_expires_at_ts)
+
+    must_reconfirm_low = source == 'screen' and remaining_mins <= trigger_mins
+    must_reconfirm_jump = (
+        source == 'screen'
+        and previous_expected is not None
+        and remaining_mins >= previous_expected + 120
+    )
+
+    if not must_reconfirm_low and not must_reconfirm_jump:
+        return remaining_mins
+
+    reason = "threshold" if must_reconfirm_low else "upward-jump"
+    thread.log_message(
+        f"[Auto-Bubble] [Timer Guard] Suspicious timer reading ({remaining_mins} min, reason={reason}); reconfirming.",
+        "warning",
+        force_console=True,
+    )
+
+    confirmed_mins = _run_timer_check_path(thread, controls, force_refresh=True)
+    if confirmed_mins is None:
+        if must_reconfirm_low:
+            thread.log_message(
+                "[Auto-Bubble] [Timer Guard] Low timer reading could not be reconfirmed; skipping renewal attempt this pass.",
+                "warning",
+                force_console=True,
+            )
+            return None
+
+        if previous_expected is not None:
+            conservative = min(remaining_mins, previous_expected)
+            thread.log_message(
+                f"[Auto-Bubble] [Timer Guard] Reconfirm failed after upward jump; keeping conservative remaining={conservative} min.",
+                "warning",
+                force_console=True,
+            )
+            return conservative
+
+        return remaining_mins
+
+    if must_reconfirm_low and confirmed_mins > trigger_mins:
+        thread.log_message(
+            f"[Auto-Bubble] [Timer Guard] Initial low reading was outlier ({remaining_mins} min); reconfirmed {confirmed_mins} min.",
+            "warning",
+            force_console=True,
+        )
+    elif must_reconfirm_low:
+        thread.log_message(
+            f"[Auto-Bubble] [Timer Guard] Low reading confirmed ({confirmed_mins} min).",
+            "info",
+            force_console=True,
+        )
+
+    return confirmed_mins
+
+
 def _run_renewal_path_if_needed(thread, controls, remaining_mins):
     """
     RENEWAL PATH (write/action):
@@ -644,11 +798,23 @@ def run_auto_bubble_check(thread, force_refresh=False):
         if next_retry_ts and time.time() < next_retry_ts and not force_refresh:
             return False
 
+        previous_expires_at_ts = state.get('expires_at_ts')
+
         remaining_mins = _run_timer_check_path(thread, controls, force_refresh=force_refresh)
         if remaining_mins is None:
             return False
 
         trigger_mins = int(controls.get('trigger_minutes', 60))
+        remaining_mins = _stabilize_timer_reading(
+            thread,
+            controls,
+            remaining_mins,
+            trigger_mins,
+            previous_expires_at_ts,
+        )
+        if remaining_mins is None:
+            return False
+
         expires_at_ts = state.get('expires_at_ts')
 
         # If bubble is active and not yet at threshold, sleep exactly until the

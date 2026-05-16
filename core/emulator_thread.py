@@ -22,6 +22,7 @@ import logging
 
 from utils.get_controls_info import get_game_settings_controls, get_all_feature_controls, get_auto_bubble_controls
 from utils.image_recognition_utils import is_template_match, template_match_coordinates
+from utils.text_extraction_util import extract_text_from_image
 
 
 class InstanceConsoleHandler(logging.Handler):
@@ -428,6 +429,47 @@ class EmulatorThread(QThread):
             pass
         return True
 
+    @staticmethod
+    def _normalize_ocr_text_for_match(text: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", " ", (text or "").lower())).strip()
+
+    def _is_account_conflict_popup_present(self, src_img) -> bool:
+        """
+        Detect the forced-disconnect dialog via OCR so we can stop safely.
+        This check is throttled to avoid expensive OCR on every screenshot.
+        """
+        try:
+            if src_img is None:
+                return False
+
+            now = time.time()
+            last_ts = float(self.cache.get('account_conflict_ocr_last_ts', 0) or 0)
+            if now - last_ts < 1.5:
+                return bool(self.cache.get('account_conflict_detected', False))
+
+            self.cache['account_conflict_ocr_last_ts'] = now
+
+            h, w = src_img.shape[:2]
+            # Center-heavy crop covers the message panel + Quit/Restart buttons.
+            x1, x2 = int(w * 0.10), int(w * 0.90)
+            y1, y2 = int(h * 0.28), int(h * 0.80)
+            roi = src_img[y1:y2, x1:x2]
+            raw_text = extract_text_from_image(roi)
+            text = self._normalize_ocr_text_for_match(raw_text)
+
+            has_disconnect = ("disconnect" in text) or ("discon" in text)
+            has_account_or_login = ("account" in text) or ("login" in text) or ("log in" in text) or ("someone" in text)
+            has_dialog_buttons = ("quit" in text) and ("restart" in text)
+            detected = bool(has_disconnect and (has_account_or_login or has_dialog_buttons))
+
+            self.cache['account_conflict_detected'] = detected
+            if detected:
+                self.cache['account_conflict_ocr_text'] = text
+            return detected
+        except Exception:
+            # Fail open to avoid blocking normal automation on OCR issues.
+            return False
+
     def run_emulator_instance(self):
         """
         Runs all enabled features in a single orchestrator loop.
@@ -559,9 +601,41 @@ class EmulatorThread(QThread):
                 self.log_message(f"Orchestrator loop traceback:\n{tb}", level="debug", force_console=False)
                 time.sleep(1)
 
+    def _sleep_interruptible(self, seconds: float, step: float = 0.5) -> bool:
+        """Sleep in small chunks so manual stop can interrupt long waits."""
+        end_time = time.time() + max(0.0, float(seconds or 0.0))
+        stopped_early = False
+        while self.thread_status() and time.time() < end_time:
+            time.sleep(min(step, max(0.0, end_time - time.time())))
+        if not self.thread_status() and time.time() < end_time:
+            stopped_early = True
+        if stopped_early:
+            try:
+                self.log_message(
+                    "[Orchestrator] Interrupted by manual stop while waiting. Exiting current recovery/action loop.",
+                    "info",
+                    force_console=True,
+                )
+            except Exception:
+                pass
+        return self.thread_status()
+
     def capture_and_validate_screen(self,kick_timer=True, ads=True):
         try:
+            if not self.thread_status():
+                return None
+
             src_img = self.adb_manager.take_screenshot()
+            if self._is_account_conflict_popup_present(src_img):
+                detected_text = self.cache.get('account_conflict_ocr_text', '')
+                self.log_message(
+                    f"[Orchestrator] Account conflict dialog detected via OCR. Stopping bot without restart. OCR: {detected_text}",
+                    "error",
+                    force_console=True,
+                )
+                self.stop()
+                return src_img
+
             restart_img = cv2.imread("assets/540p/other/restart_btn.png")
             world_map_btn = cv2.imread("assets/540p/other/explore_world_map_btn.png")
             kick_reload_enabled = bool(self.game_settings.get('kick_reload_enabled', True))
@@ -573,42 +647,70 @@ class EmulatorThread(QThread):
             if kick_timer and kick_reload_enabled and kick_reload_minutes > 0 and is_template_match(src_img, restart_img):
                 # print("kick timer activated")
                 self.logger.info(f"Kick & Reload activated for {kick_reload_minutes} min(s)")
-                time.sleep(kick_reload_minutes * 60)
+                if not self._sleep_interruptible(kick_reload_minutes * 60):
+                    return src_img
                 # print("kick timer done")
                 self.logger.info("Kick timer done. Restart initiated")
                 # Restart the game
+                if not self.thread_status():
+                    return src_img
                 src_img = self.adb_manager.take_screenshot()
                 restart = template_match_coordinates(src_img, restart_img)
                 if restart:
                     self.adb_manager.tap(restart[0], restart[1])
-                    time.sleep(7)
+                    if not self._sleep_interruptible(7):
+                        return src_img
                     src_img = self.adb_manager.take_screenshot()
                 else:
                     # When restart button is gone, restart the game by starting it again
                     self.adb_manager.launch_evony(False)
-                    time.sleep(1)
+                    if not self._sleep_interruptible(1):
+                        return src_img
                     self.adb_manager.launch_evony(True)
                 start_time = time.time()
                 timeout = 60
-                while not is_template_match(src_img, world_map_btn):
+                while self.thread_status() and not is_template_match(src_img, world_map_btn):
+                    if self._is_account_conflict_popup_present(src_img):
+                        detected_text = self.cache.get('account_conflict_ocr_text', '')
+                        self.log_message(
+                            f"[Orchestrator] Account conflict dialog detected via OCR during loading recovery. Stopping bot without restart. OCR: {detected_text}",
+                            "error",
+                            force_console=True,
+                        )
+                        self.stop()
+                        return src_img
+
                     # Wait a bit before the next screenshot to reduce CPU usage
-                    time.sleep(1)
+                    if not self._sleep_interruptible(1):
+                        return src_img
                     # Check if the timeout has been reached
                     elapsed_time = time.time() - start_time
                     if elapsed_time > timeout:
                         # print("Game stuck in loading screen. Restarting...")
                         self.logger.info("Game stuck in loading screen. Restarting...")
                         self.adb_manager.launch_evony(False)  # Close the game
-                        time.sleep(1)  # Wait for a few seconds before relaunching
+                        if not self._sleep_interruptible(1):
+                            return src_img
                         self.adb_manager.launch_evony(True)  # Relaunch the game
                         start_time = time.time()  # Reset the start time after relaunching
 
                     # print("Still loading")
                     # Capture the new image
                     src_img = self.adb_manager.take_screenshot()
+                    if self._is_account_conflict_popup_present(src_img):
+                        detected_text = self.cache.get('account_conflict_ocr_text', '')
+                        self.log_message(
+                            f"[Orchestrator] Account conflict dialog detected via OCR during loading recovery. Stopping bot without restart. OCR: {detected_text}",
+                            "error",
+                            force_console=True,
+                        )
+                        self.stop()
+                        return src_img
 
             if ads:
                 for i in range(1, 7):
+                    if not self.thread_status():
+                        return src_img
                     ads_img = cv2.imread(f"assets/540p/other/x{i}.png")
                     if is_template_match(src_img, ads_img):
                         if i == 6:
@@ -623,7 +725,8 @@ class EmulatorThread(QThread):
                             continue
 
                         self.adb_manager.tap(ads_match[0], ads_match[1])
-                        time.sleep(1)
+                        if not self._sleep_interruptible(1):
+                            return src_img
                         src_img = self.adb_manager.take_screenshot()
                         break
             return src_img

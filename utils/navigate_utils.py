@@ -322,11 +322,16 @@ def press_back_with_exit_guard(thread, wait_seconds=0.8):
         time.sleep(wait_seconds)
 
         screen = thread.capture_and_validate_screen(ads=False)
-        if screen is not None and tap_dialog_cancel_button(thread, screen=screen):
+        if screen is not None and _is_exit_game_prompt(screen):
             if hasattr(thread, 'cache') and isinstance(thread.cache, dict):
                 thread.cache['nav_last_back_exit_prompt'] = True
-            _nav_log(thread, "Detected exit-game prompt after BACK; tapped Cancel.", "warning")
-            return True
+
+            if tap_dialog_cancel_button(thread, screen=screen):
+                _nav_log(thread, "Detected exit-game prompt after BACK; tapped Cancel.", "warning")
+                return True
+
+            _nav_log(thread, "Detected exit-game prompt after BACK, but Cancel button was not found.", "warning")
+            return False
         return True
     except Exception as e:
         _nav_log(thread, f"Safe BACK failed: {e}", "warning")

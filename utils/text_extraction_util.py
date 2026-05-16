@@ -84,6 +84,11 @@ def _safe_image_to_string(image, config: str = "") -> str:
     return ""
 
 
+def extract_text_from_image(image, config: str = "") -> str:
+    """Public OCR helper used by non-feature modules for generic text detection."""
+    return _safe_image_to_string(image, config)
+
+
 
 def filter_general_name(text):
     # Replace newlines with spaces

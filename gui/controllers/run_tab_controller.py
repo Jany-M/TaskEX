@@ -194,6 +194,41 @@ def init_run_tab(main_window, index, instance):
         load_instance_data(main_window,instance,index)
         setup_instance_edit_handlers(main_window, index)
 
+    # Persist key instance controls immediately when changed.
+    setup_instance_controls_autosave(main_window, index)
+
+
+def _is_instance_autosave_suppressed(main_window, index):
+    suppressed = getattr(main_window, "_suppress_instance_autosave_indexes", None)
+    return isinstance(suppressed, set) and index in suppressed
+
+
+def setup_instance_controls_autosave(main_window, index):
+    """Attach lightweight autosave for controls that users expect to persist instantly."""
+    profile_combo = getattr(main_window.widgets, f"emu_profile_{index}", None)
+    kick_enabled = _get_instance_widget(main_window, index, "kick_reload_enabled___")
+    kick_minutes = _get_instance_widget(main_window, index, "kick_reload_spinbox___")
+
+    def _autosave_now():
+        if _is_instance_autosave_suppressed(main_window, index):
+            return
+        if profile_combo is None:
+            return
+        profile_id = profile_combo.currentData()
+        if profile_id is None:
+            return
+        save_profile_controls(main_window, index, profile_id=profile_id)
+
+    if kick_enabled is not None:
+        if not kick_enabled.property("autosave_connected"):
+            kick_enabled.stateChanged.connect(lambda _: _autosave_now())
+            kick_enabled.setProperty("autosave_connected", True)
+
+    if kick_minutes is not None:
+        if not kick_minutes.property("autosave_connected"):
+            kick_minutes.valueChanged.connect(lambda _: _autosave_now())
+            kick_minutes.setProperty("autosave_connected", True)
+
 
 def populate_profile_combo(combobox):
     session = get_session()
@@ -1227,73 +1262,82 @@ def on_profile_loaded(loaded_profile_id, settings, main_window, index):
         print(f"Page for index {index} not found!")
         return
 
-    # Update widgets with loaded settings
-    for widget_type, widgets_data in settings.items():
-        for widget_data in widgets_data:
-            object_name = widget_data.get("object_name")
-            value = widget_data.get("value")
+    suppressed = getattr(main_window, "_suppress_instance_autosave_indexes", None)
+    if not isinstance(suppressed, set):
+        suppressed = set()
+        setattr(main_window, "_suppress_instance_autosave_indexes", suppressed)
 
-            # Find the widget by its object name
-            widget = getattr(main_window.widgets, f"{object_name}{index}", None)
-            if widget is None:
-                widget = getattr(main_window.widgets, object_name, None)
-            if not widget:
-                continue
+    suppressed.add(index)
+    try:
+        # Update widgets with loaded settings
+        for widget_type, widgets_data in settings.items():
+            for widget_data in widgets_data:
+                object_name = widget_data.get("object_name")
+                value = widget_data.get("value")
 
-            # print(widget.objectName())
-            # print(f"{widget.objectName()} :: {widget.__class__.__name__}")
+                # Find the widget by its object name
+                widget = getattr(main_window.widgets, f"{object_name}{index}", None)
+                if widget is None:
+                    widget = getattr(main_window.widgets, object_name, None)
+                if not widget:
+                    continue
 
-            # Update the widget
-            if isinstance(widget, QCheckBox):
-                widget.setChecked(value)
-                # print(widget.objectName(),value)
-            elif isinstance(widget, QGroupBox):
-                # QGroupBox is checkable and used for auto-bubble enabled state
-                widget.setChecked(value)
-            elif isinstance(widget, QLineEdit):
-                widget.setText(value)
-            elif isinstance(widget, QSpinBox):
-                widget.setValue(value)
-            elif isinstance(widget, QTimeEdit):
-                time = QTime.fromString(value, "hh:mm:ss")
-                if time.isValid():
-                    widget.setTime(time)
-            elif isinstance(widget, QCheckComboBox):
-                # Check if the value is an empty list, meaning all options should be unchecked
-                if not value:  # Empty list
-                    for i in range(widget.count()):
-                        widget.setItemCheckState(i, Qt.Unchecked)
-                else:  # Loop through the options and check if the item's data matches the saved value
-                    for i in range(widget.count()):
-                        item_data = widget.itemData(i)  # Get itemData for each option
-                        if item_data in value:
-                            widget.setItemCheckState(i, Qt.Checked)  # Check the option
-                        else:
-                            widget.setItemCheckState(i, Qt.Unchecked)  # Uncheck the option
-            elif isinstance(widget, QComboBox):
-                # Loop through all items in the QComboBox
-                for i in range(widget.count()):
-                    # Get the item data for the current index
-                    item_data = widget.itemData(i)
-                    # Check if the stored value matches the item's data
-                    if item_data == value:
-                        # Set the current index to the matching item
-                        widget.setCurrentIndex(i)
-                        break
-            elif isinstance(widget, QPushButton):
-                button_type = widget.property('type')  # Get the type of the button
-                if button_type == 'checkable':
-                    # Set the button's checked state
+                # print(widget.objectName())
+                # print(f"{widget.objectName()} :: {widget.__class__.__name__}")
+
+                # Update the widget
+                if isinstance(widget, QCheckBox):
                     widget.setChecked(value)
-                elif button_type == 'value':
-                    # Set the button's 'value' property
-                    widget.setProperty('value', value)
+                    # print(widget.objectName(),value)
+                elif isinstance(widget, QGroupBox):
+                    # QGroupBox is checkable and used for auto-bubble enabled state
+                    widget.setChecked(value)
+                elif isinstance(widget, QLineEdit):
+                    widget.setText(value)
+                elif isinstance(widget, QSpinBox):
+                    widget.setValue(value)
+                elif isinstance(widget, QTimeEdit):
+                    time = QTime.fromString(value, "hh:mm:ss")
+                    if time.isValid():
+                        widget.setTime(time)
+                elif isinstance(widget, QCheckComboBox):
+                    # Check if the value is an empty list, meaning all options should be unchecked
+                    if not value:  # Empty list
+                        for i in range(widget.count()):
+                            widget.setItemCheckState(i, Qt.Unchecked)
+                    else:  # Loop through the options and check if the item's data matches the saved value
+                        for i in range(widget.count()):
+                            item_data = widget.itemData(i)  # Get itemData for each option
+                            if item_data in value:
+                                widget.setItemCheckState(i, Qt.Checked)  # Check the option
+                            else:
+                                widget.setItemCheckState(i, Qt.Unchecked)  # Uncheck the option
+                elif isinstance(widget, QComboBox):
+                    # Loop through all items in the QComboBox
+                    for i in range(widget.count()):
+                        # Get the item data for the current index
+                        item_data = widget.itemData(i)
+                        # Check if the stored value matches the item's data
+                        if item_data == value:
+                            # Set the current index to the matching item
+                            widget.setCurrentIndex(i)
+                            break
+                elif isinstance(widget, QPushButton):
+                    button_type = widget.property('type')  # Get the type of the button
+                    if button_type == 'checkable':
+                        # Set the button's checked state
+                        widget.setChecked(value)
+                    elif button_type == 'value':
+                        # Set the button's 'value' property
+                        widget.setProperty('value', value)
+
+        # Instance-specific bubble settings override shared profile settings.
+        _apply_instance_auto_bubble_settings(main_window, index)
+        _apply_instance_join_rally_settings(main_window, index)
+    finally:
+        suppressed.discard(index)
     # Destroy the worker
     main_window.worker_refs[index] = None
-
-    # Instance-specific bubble settings override shared profile settings.
-    _apply_instance_auto_bubble_settings(main_window, index)
-    _apply_instance_join_rally_settings(main_window, index)
 
 
 
